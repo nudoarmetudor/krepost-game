@@ -11,6 +11,7 @@ import { isUnlocked, rollModule } from './state.js';
 const TAU = Math.PI * 2;
 const MAX_ENEMIES = 450;
 const MAX_FX = 260;
+const MAX_MINES = 60;
 
 export class Run {
   constructor(save, { tier = save.tier, rand = Math.random, snapshot = null } = {}) {
@@ -993,6 +994,9 @@ export class Run {
           const a = (i / cfg.count) * TAU + this.rand() * 0.3;
           this.mines.push({ x: Math.cos(a) * 9, y: Math.sin(a) * 9, dmg: cfg.dmg, r: 5, big: true });
         }
+        // late in a run enemies may never reach the ring; keep the newest
+        // mines so they cannot pile up into the hundreds
+        if (this.mines.length > MAX_MINES) this.mines.splice(0, this.mines.length - MAX_MINES);
         this.sfx.push('uw');
         break;
       default:

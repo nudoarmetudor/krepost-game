@@ -304,3 +304,13 @@ test('a shot whose enemy dies on the way goes on to another one', () => {
   assert.ok(b.dead, 'the shot moved on to the other enemy');
   assert.equal(b.pending, 0);
 });
+
+test('Mine Ring mines never pile up past the cap', () => {
+  const s = newSave(0);
+  s.stones = 1e6;
+  assert.ok(unlockUw(s, 'minering'));
+  const run = new Run(s, { rand: seeded(2) });
+  run.spawnAcc = -1e9;
+  for (let i = 0; i < 200; i++) run.triggerUw('minering', run.S.uw.minering, run.uw.minering);
+  assert.ok(run.mines.length <= 60, `${run.mines.length} mines`);
+});
