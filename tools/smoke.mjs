@@ -36,6 +36,20 @@ for (let i = 0; i < 6; i++) { await page.click('.upg >> nth=0'); await page.wait
 await page.click('.seg >> nth=0 >> text=Defense');
 await page.waitForTimeout(3000);
 await shot('04-battle-defense');
+await page.click('[aria-label="Stats"]');
+await page.waitForTimeout(300);
+await shot('04a-stats-tower');
+await page.locator('.srow').first().click({ force: true });
+await page.waitForTimeout(200);
+await shot('04b-stats-damage-open');
+await page.click('.modal .seg >> text=Enemies');
+await page.waitForTimeout(200);
+await shot('04c-stats-enemies');
+await page.click('.modal .ecard .srow.has >> nth=0');
+await page.click('.modal button:has-text("+10")');
+await page.waitForTimeout(200);
+await shot('04d-stats-enemies-wave');
+await page.click('[aria-label="Close"]');
 // fast-forward the run from the page
 await page.evaluate(async () => {
   const { app } = await import('./js/app.js');
@@ -55,9 +69,31 @@ for (const [i, name] of ['Workshop', 'Labs', 'Cards', 'Modules', 'Ultimates'].en
   await page.waitForTimeout(300);
   await shot(`0${7 + i}-${name.toLowerCase()}`);
 }
-await page.click('[aria-label="Settings and stats"]');
+await page.click('[aria-label="Settings"]');
 await page.waitForTimeout(300);
 await shot('12-settings');
+
+// a save written by version 1, with a run in progress
+const old = (await readFile(join(root, 'tests/fixtures/save-v1.json'), 'utf8')).trim();
+const page2 = await (await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true })).newPage();
+page2.on('pageerror', (e) => errors.push('v1 save: ' + e.message));
+await page2.addInitScript((txt) => { if (!sessionStorage.seeded) { localStorage.setItem('krepost-save-v1', txt); sessionStorage.seeded = 1; } }, old);
+await page2.goto(url);
+await page2.waitForTimeout(500);
+await page2.screenshot({ path: `${out}/13-v1-save-home.png` });
+await page2.click('.modal button >> nth=-1').catch(() => {});
+await page2.click('button:has-text("CONTINUE")');
+await page2.waitForTimeout(3000);
+await page2.screenshot({ path: `${out}/14-v1-save-battle.png` });
+await page2.evaluate(async () => {
+  const { app } = await import('./js/app.js');
+  for (let i = 0; i < 60 * 40 && !app.run.over; i++) app.run.step(1 / 60);
+});
+await page2.waitForTimeout(1200);
+await page2.screenshot({ path: `${out}/15-v1-save-boss.png` });
+await page2.click('[aria-label="Stats"]');
+await page2.waitForTimeout(300);
+await page2.screenshot({ path: `${out}/16-v1-save-stats.png`, fullPage: false });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no console errors');
 await browser.close();
 server.close();

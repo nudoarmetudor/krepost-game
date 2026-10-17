@@ -1,16 +1,20 @@
 // Offline support: serve from cache, refresh the cache in the background so
 // the next start picks up a new version.
 
-const CACHE = 'krepost-v1';
+const CACHE = 'krepost-v2';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/main.js', 'js/app.js', 'js/audio.js', 'js/data.js', 'js/dom.js', 'js/format.js',
-  'js/game.js', 'js/render.js', 'js/screens.js', 'js/state.js', 'js/stats.js',
+  'js/game.js', 'js/render.js', 'js/screens.js', 'js/state.js', 'js/stats.js', 'js/statspanel.js',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache, so a new version never
+  // installs with files left over from the old one
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

@@ -14,6 +14,7 @@ export const app = {
   refresh: () => {},
   startRun: () => {},
   continueRun: () => {},
+  openStats: () => {},
 };
 
 export function commit() {

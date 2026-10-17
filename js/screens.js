@@ -39,7 +39,8 @@ export function renderTopbar() {
     h('span', { class: 'chip' }, cur('coin', fmt(s.coins))),
     h('span', { class: 'chip' }, cur('gem', fmtInt(s.gems))),
     h('span', { class: 'chip' }, cur('stone', fmtInt(s.stones))),
-    h('button', { class: 'icon-btn', 'aria-label': 'Settings and stats', onclick: () => app.go('more') }, icon('gear')),
+    h('button', { class: 'icon-btn', 'aria-label': 'Tower and enemy stats', onclick: () => { play('click'); app.openStats(); } }, icon('stats')),
+    h('button', { class: 'icon-btn', 'aria-label': 'Settings', onclick: () => app.go('more') }, icon('gear')),
   );
 }
 
@@ -127,6 +128,7 @@ export function howTo() {
     h('p', {}, 'Your fortress fires on its own. Enemies come in waves from every side, and every tenth wave brings a boss.'),
     h('p', {}, 'During a run, spend cash on Attack, Defense and Utility upgrades. They reset when the run ends.'),
     h('p', {}, 'Between runs, spend coins in the Workshop for permanent upgrades, start research in the Labs, collect Cards and Modules with gems, and unlock Ultimate weapons with stones.'),
+    h('p', {}, 'The bars icon shows every number: what your tower does, what each bonus adds, and what the enemies bring at any wave.'),
     h('p', {}, 'Labs keep running and coins keep coming while you are away. No ads, no purchases: everything is earned by playing.'),
   );
 }
