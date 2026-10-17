@@ -22,6 +22,7 @@ export function h(tag, props = {}, ...kids) {
 const ICONS = {
   coin: '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.5" fill="#ffcf4a"/><circle cx="10" cy="10" r="5.5" fill="none" stroke="#b3800f" stroke-width="1.6"/></svg>',
   gem: '<svg viewBox="0 0 20 20"><path d="M10 1.5 17.5 8 10 18.5 2.5 8Z" fill="#6fe7ff"/><path d="M2.5 8h15M10 1.5 7 8l3 10.5L13 8z" fill="none" stroke="#2a8fae" stroke-width="1"/></svg>',
+  stats: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   stone: '<svg viewBox="0 0 20 20"><path d="M10 1.5 17.4 5.8v8.4L10 18.5 2.6 14.2V5.8Z" fill="#b48cff"/><path d="M10 6.5 13.4 8.5v3L10 13.5 6.6 11.5v-3Z" fill="#6a45c4"/></svg>',
   shard: '<svg viewBox="0 0 20 20"><path d="M10 1.5 16 12 10 18.5 4 12Z" fill="#ff9bf2"/><path d="M10 1.5 10 18.5" stroke="#a8459a" stroke-width="1"/></svg>',
   cash: '<svg viewBox="0 0 20 20"><rect x="1.5" y="4.5" width="17" height="11" rx="2" fill="#7cf5a8"/><circle cx="10" cy="10" r="3" fill="#1f6b3e"/></svg>',
@@ -35,7 +36,7 @@ const ICONS = {
   pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l12-7.5Z"/></svg>',
   star: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="m12 2 3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.8l-6.3 3.6 1.5-7.1L1.8 9.4 9 8.6Z"/></svg>',
-  logo: '<svg viewBox="0 0 64 64"><defs><radialGradient id="lg" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffb547" stop-opacity=".45"/><stop offset="1" stop-color="#ffb547" stop-opacity="0"/></radialGradient></defs><circle cx="32" cy="32" r="31" fill="url(#lg)"/><path d="M32 10 37 13 43 12 45 18 51 21 50 27 54 32 50 37 51 43 45 46 43 52 37 51 32 54 27 51 21 52 19 46 13 43 14 37 10 32 14 27 13 21 19 18 21 12 27 13Z" fill="#2b3550" stroke="#ffb547" stroke-width="2.4" stroke-linejoin="round"/><circle cx="32" cy="32" r="11" fill="#1a2136"/><rect x="32" y="29" width="17" height="6" rx="1.5" fill="#ffb547"/><circle cx="32" cy="32" r="6.5" fill="#ffb547"/></svg>',
+  logo: '<svg viewBox="0 0 64 64"><defs><radialGradient id="lg" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#ffb547" stop-opacity=".45"/><stop offset="1" stop-color="#ffb547" stop-opacity="0"/></radialGradient></defs><circle cx="32" cy="32" r="31" fill="url(#lg)"/><path d="M32 10 37 13 43 12 45 18 51 21 50 27 54 32 50 37 51 43 45 46 43 52 37 51 32 54 27 51 21 52 19 46 13 43 14 37 10 32 14 27 13 21 19 18 21 12 27 13Z" fill="#2b3550" stroke="#ffb547" stroke-width="2.4" stroke-linejoin="round"/><circle cx="32" cy="32" r="11" fill="#1a2136"/><circle cx="32" cy="32" r="8" fill="#ffb547" opacity=".35"/><circle cx="32" cy="32" r="5.5" fill="#ffd68c"/><circle cx="32" cy="32" r="2.6" fill="#fffaf0"/></svg>',
 };
 
 export function icon(name, cls = '') {
@@ -64,9 +65,9 @@ export function modalOpen() {
 }
 
 // Shows content in a modal. Returns a close function.
-export function modal(content, { dismissable = true, onClose } = {}) {
+export function modal(content, { dismissable = true, onClose, cls = '' } = {}) {
   const root = document.getElementById('modal-root');
-  const box = h('div', { class: 'modal', role: 'dialog' }, content);
+  const box = h('div', { class: 'modal ' + cls, role: 'dialog' }, content);
   const back = h('div', { class: 'back' }, box);
   let closed = false;
   const close = () => {

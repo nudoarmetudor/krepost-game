@@ -8,6 +8,7 @@ import { STATS, CATS, WORLD, PERK_BY_ID, UWS, TIERS } from './data.js';
 import { load, applyOffline, claimDaily, finishRun, isUnlocked } from './state.js';
 import { Run } from './game.js';
 import { Renderer } from './render.js';
+import { openStats } from './statspanel.js';
 import {
   renderTopbar, renderTabs, homeScreen, workshopScreen, labsScreen, cardsScreen, modulesScreen,
   ultimatesScreen, moreScreen, howTo, UW_COLOR,
@@ -33,6 +34,7 @@ function boot() {
   app.refresh = refresh;
   app.startRun = startRun;
   app.continueRun = continueRun;
+  app.openStats = openStats;
 
   document.addEventListener('pointerdown', unlockAudio, { capture: true });
   document.addEventListener('visibilitychange', () => {
@@ -47,8 +49,23 @@ function boot() {
   setInterval(tick, 1000);
   requestAnimationFrame(frame);
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    // A new version takes over in the background; restart into it at the
+    // next quiet moment, never in the middle of a battle.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      app.updateReady = true;
+      reloadIfQuiet();
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+}
+
+function reloadIfQuiet() {
+  if (!app.updateReady || app.screen === 'battle' || modalOpen()) return;
+  app.updateReady = false;
+  commit();
+  location.reload();
 }
 
 function welcome(away, daily) {
@@ -80,6 +97,7 @@ function go(screen) {
   if (app.screen === 'battle' && screen !== 'battle') document.body.classList.remove('in-battle');
   app.screen = screen;
   refresh();
+  setTimeout(reloadIfQuiet, 400);
 }
 
 function refresh() {
@@ -94,6 +112,7 @@ function refresh() {
   main.dataset.screen = app.screen;
   main.replaceChildren(SCREENS[app.screen]());
   if (sameScreen) main.scrollTop = scroll;
+  else if (main.firstChild && main.firstChild.classList) main.firstChild.classList.add('enter');
   if (app.screen === 'battle' && app.renderer) app.renderer.resize();
 }
 
@@ -262,6 +281,19 @@ function battleScreen() {
   const cashLabel = h('span', { class: 'amt' });
   const speedBtn = h('button', { class: 'btn small speed', onclick: cycleSpeed });
   const pauseBtn = h('button', { class: 'icon-btn', onclick: pauseMenu, 'aria-label': 'Pause' }, icon('pause'));
+  const statsBtn = h('button', { class: 'icon-btn', onclick: () => { play('click'); openStats(); }, 'aria-label': 'Stats' }, icon('stats'));
+  const banner = h('div', { class: 'banner' });
+  const bossName = h('span');
+  const bossHp = h('span');
+  const bossFill = h('i');
+  const bossBar = h('div', { class: 'bossbar', hidden: true }, h('div', { class: 'row spread' }, bossName, bossHp), h('div', { class: 'bar' }, bossFill));
+  let shownWave = run.wave;
+  const showBanner = (text, boss) => {
+    banner.textContent = text;
+    banner.className = 'banner' + (boss ? ' boss' : '');
+    void banner.offsetWidth; // restart the animation
+    banner.classList.add('show');
+  };
   const hpText = h('span');
   const hpFill = h('i');
   const coinLabel = h('span', { class: 'amt' });
@@ -296,12 +328,19 @@ function battleScreen() {
       const v = h('span', { class: 'v' });
       const c = h('span', { class: 'c' });
       const l = h('span', { class: 'l' });
-      const b = h('button', { class: 'upg ' + stat.cat, onclick: () => {
+      const buyOnce = () => {
         const want = app.ui.runMult === 'max' ? run.maxAffordable(stat.id) : app.ui.runMult;
         const { bought, free } = run.buy(stat.id, Math.max(1, want));
         if (free) toast(free > 1 ? `${free} free upgrades` : 'Free upgrade!');
-        if (bought) updatePanel();
-      } }, h('div', { class: 'in' }, n, v, c), l);
+        if (bought) {
+          flash(b);
+          if (app.save.settings.vibrate && navigator.vibrate) navigator.vibrate(8);
+          updatePanel();
+        } else play('nope');
+        return bought;
+      };
+      const b = h('button', { class: 'upg ' + stat.cat }, h('div', { class: 'in' }, n, v, c), l);
+      holdToRepeat(b, buyOnce);
       buttons.push({ stat, b, v, c, l });
       grid.append(b);
     }
@@ -336,6 +375,19 @@ function battleScreen() {
 
   hud = () => {
     const S = run.S;
+    if (run.wave !== shownWave) {
+      shownWave = run.wave;
+      if (run.wave % 10 === 0) showBanner(`Wave ${run.wave} · Boss`, true);
+      else if (run.wave % 5 === 0) showBanner(`Wave ${run.wave}`, false);
+    }
+    const boss = run.enemies.find((e) => e.boss && !e.dead);
+    bossBar.hidden = !boss;
+    if (boss) {
+      bossName.textContent = boss.def.name;
+      bossHp.textContent = fmt(Math.max(0, boss.hp));
+      bossFill.style.width = ((Math.max(0, boss.hp) / boss.maxHp) * 100).toFixed(1) + '%';
+    }
+    field.classList.toggle('danger', run.hp / S.maxHp < 0.25);
     waveLabel.textContent = 'Wave ' + run.wave;
     waveFill.style.width = ((run.waveTime / WORLD.waveSeconds) * 100).toFixed(1) + '%';
     timeLabel.textContent = fmtClock(run.simTime) + ' · Tier ' + run.tier;
@@ -358,22 +410,61 @@ function battleScreen() {
     updatePanel();
   };
 
+  const field = h('div', { class: 'field' }, canvas,
+    h('div', { class: 'overlay-top' },
+      h('div', { class: 'hpbox' }, h('div', { class: 'row spread' }, h('span', {}, 'Walls'), hpText), h('div', { class: 'bar' }, hpFill)),
+      h('div', { class: 'runcur' }, cur('coin', coinLabel), cur('gem', gemLabel))),
+    bossBar, banner, perkBtn, uwBox);
   const view = h('div', { class: 'battle' },
     h('div', { class: 'hud' },
-      pauseBtn,
+      pauseBtn, statsBtn,
       h('div', { class: 'stack grow' }, h('div', { class: 'row spread' }, waveLabel, timeLabel), h('div', { class: 'wavebar' }, waveFill)),
       h('span', { class: 'cur chip', style: { color: 'var(--cash)' } }, cashLabel),
       speedBtn),
-    h('div', { class: 'field' }, canvas,
-      h('div', { class: 'overlay-top' },
-        h('div', { class: 'hpbox' }, h('div', { class: 'row spread' }, h('span', {}, 'Walls'), hpText), h('div', { class: 'bar' }, hpFill)),
-        h('div', { class: 'runcur' }, cur('coin', coinLabel), cur('gem', gemLabel))),
-      perkBtn, uwBox),
+    field,
     panel,
   );
   buildPanel();
   requestAnimationFrame(() => { app.renderer.resize(); hud(); });
   return view;
+}
+
+// Tap buys once; holding keeps buying, faster the longer it is held.
+function holdToRepeat(el, fn) {
+  let timer = null;
+  let repeated = false;
+  const stop = () => {
+    clearTimeout(timer);
+    timer = null;
+  };
+  const loop = (delay) => {
+    timer = setTimeout(() => {
+      repeated = true;
+      if (!fn()) return stop();
+      loop(Math.max(45, delay * 0.82));
+    }, delay);
+  };
+  el.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    repeated = false;
+    stop();
+    loop(380);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) el.addEventListener(ev, stop);
+  el.addEventListener('click', () => {
+    if (repeated) {
+      repeated = false;
+      return;
+    }
+    fn();
+  });
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+function flash(el) {
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
 }
 
 function segEl(options, value, onpick, style) {

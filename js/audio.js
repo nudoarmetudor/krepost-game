@@ -21,6 +21,7 @@ const SOUNDS = {
   uw: { f: 300, f2: 900, d: 0.3, type: 'sawtooth', v: 0.05, gap: 0.2 },
   defeat: { f: 330, f2: 82, d: 1.2, type: 'sawtooth', v: 0.1, gap: 1 },
   click: { f: 1000, f2: 900, d: 0.03, type: 'sine', v: 0.04, gap: 0.02 },
+  nope: { f: 180, f2: 140, d: 0.06, type: 'triangle', v: 0.05, gap: 0.12 },
 };
 
 export function setSound(on) {

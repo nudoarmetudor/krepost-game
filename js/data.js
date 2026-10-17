@@ -105,6 +105,52 @@ export function enemyDmgScale(wave, tier) {
   return (1 + 0.08 * wave) * 1.03 ** wave * t.dmg;
 }
 
+// The same numbers broken into their parts, for the game and for the stats
+// panel alike. Each returns { base, parts: [{ label, op, v }], total }.
+function built(base, parts) {
+  let total = base;
+  for (const pt of parts) total *= pt.v;
+  return { base, parts: parts.filter((pt) => pt.v !== 1), total };
+}
+
+export function enemyHpAt(def, wave, tier, hpMult = 1) {
+  const t = TIERS[tier - 1];
+  const parts = [
+    { label: `Wave ${wave}`, op: '×', v: enemyHpScale(wave, 1) },
+    { label: `Tier ${tier}`, op: '×', v: t.hp },
+    { label: 'Perk: Bounty', op: '×', v: hpMult },
+  ];
+  if (def.boss) parts.push({ label: 'Boss, +15% every 10 waves', op: '×', v: 1 + Math.floor(wave / 10) * 0.15 });
+  return built(def.hp, parts);
+}
+
+export function enemyDmgAt(def, wave, tier) {
+  return built(def.dmg, [
+    { label: `Wave ${wave}`, op: '×', v: enemyDmgScale(wave, 1) },
+    { label: `Tier ${tier}`, op: '×', v: TIERS[tier - 1].dmg },
+  ]);
+}
+
+// S: the tower's computed stats (cashMult, coinMult, bossCoinMult)
+export function enemyCashAt(def, wave, tier, S, midas = 1) {
+  return built(def.cash, [
+    { label: `Wave ${wave}`, op: '×', v: 1 + 0.025 * wave },
+    { label: 'Your cash bonus', op: '×', v: S.cashMult },
+    { label: `Tier ${tier}`, op: '×', v: TIERS[tier - 1].cash },
+    { label: 'Midas Keep', op: '×', v: midas },
+  ]);
+}
+
+export function enemyCoinsAt(def, wave, tier, S, midas = 1) {
+  return built(def.coins, [
+    { label: `Wave ${wave}`, op: '×', v: 1 + 0.012 * wave },
+    { label: 'Your coin bonus', op: '×', v: S.coinMult },
+    { label: `Tier ${tier}`, op: '×', v: TIERS[tier - 1].coins },
+    { label: 'Midas Keep', op: '×', v: midas },
+    { label: 'Module: Harvester', op: '×', v: def.boss ? S.bossCoinMult : 1 },
+  ]);
+}
+
 export function spawnInterval(wave) {
   return Math.max(0.16, 1.5 * 0.975 ** (wave - 1));
 }

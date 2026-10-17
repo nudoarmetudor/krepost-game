@@ -2,7 +2,7 @@
 // runs in the browser and in the Node tests.
 
 import {
-  WORLD, STATS, STAT_BY_ID, runCost, ENEMIES, enemyHpScale, enemyDmgScale, spawnInterval, spawnTable,
+  WORLD, STATS, STAT_BY_ID, runCost, ENEMIES, enemyHpAt, enemyDmgAt, enemyCashAt, enemyCoinsAt, spawnInterval, spawnTable,
   TIERS, PERKS, PERK_BY_ID, BOSS_GEM_CHANCE, BOSS_MODULE_CHANCE, GEM_DROP_EVERY,
 } from './data.js';
 import { computeStats } from './stats.js';
@@ -67,6 +67,7 @@ export class Run {
     this.nextId = 1;
     this.target = null;
     this.aim = -Math.PI / 2;
+    this.fireT = 0;
     this.shake = 0;
     this.damageBySource = {};
 
@@ -383,15 +384,13 @@ export class Run {
 
   addEnemy(type, x, y, hpScale = 1) {
     const def = ENEMIES[type];
-    const hpMult = enemyHpScale(this.wave, this.tier) * this.S.enemyHpMult;
-    let hp = def.hp * hpMult * hpScale;
-    if (def.boss) hp *= 1 + Math.floor(this.wave / 10) * 0.15;
+    const hp = enemyHpAt(def, this.wave, this.tier, this.S.enemyHpMult).total * hpScale;
     const e = {
       id: this.nextId++, type, def, x, y, hp, maxHp: hp,
-      dmg: def.dmg * enemyDmgScale(this.wave, this.tier),
+      dmg: enemyDmgAt(def, this.wave, this.tier).total,
       speed: def.speed * (0.92 + this.rand() * 0.16),
       r: def.r, boss: !!def.boss, atkAcc: 0, fireAcc: this.rand(), slow: 0, hitFlash: 0,
-      wave: this.wave, angle: Math.atan2(-y, -x),
+      wave: this.wave, angle: Math.atan2(-y, -x), pending: 0,
     };
     this.enemies.push(e);
     return e;
@@ -510,13 +509,10 @@ export class Run {
     if (e.dead) return;
     e.dead = true;
     const S = this.S;
-    const tier = TIERS[this.tier - 1];
     const midas = this.midasMult();
     const def = e.def;
-    this.gainCash(def.cash * (1 + 0.025 * this.wave) * S.cashMult * tier.cash * midas);
-    let coins = def.coins * (1 + 0.012 * this.wave) * S.coinMult * tier.coins * midas;
-    if (e.boss) coins *= S.bossCoinMult;
-    this.coins += coins;
+    this.gainCash(enemyCashAt(def, this.wave, this.tier, S, midas).total);
+    this.coins += enemyCoinsAt(def, this.wave, this.tier, S, midas).total;
     this.kills++;
     this.addFx({ type: 'burst', x: e.x, y: e.y, color: def.color, ttl: 0.45, n: e.boss ? 26 : 8, r: e.r });
     if (midas > 1) this.addFx({ type: 'text', x: e.x, y: e.y, text: '¢', color: '#ffd84d', ttl: 0.7 });
@@ -586,6 +582,40 @@ export class Run {
     return list.slice(0, n).map((x) => x[1]);
   }
 
+  // The n nearest enemies in range that the shots already in the air will
+  // not kill. The tower never spends a shot on an enemy that is as good as dead.
+  openTargets(n, maxDist) {
+    const list = [];
+    for (const e of this.enemies) {
+      if (e.dead || e.pending >= e.hp) continue;
+      const d = Math.hypot(e.x, e.y);
+      if (d <= maxDist) list.push([d, e]);
+    }
+    list.sort((a, b) => a[0] - b[0]);
+    return list.slice(0, n).map((x) => x[1]);
+  }
+
+  // Roughly what a tower shot of `dmg` will take off `e` when it lands. Errs
+  // low (the enemy walks in while the shot flies out, and the searchlight is
+  // left out), so the tower fires one shot too many rather than one too few.
+  expectedHit(e, dmg) {
+    const dist = Math.hypot(e.x, e.y) * 0.9;
+    return dmg * (1 + this.S.dmgPerMeter * dist) * (e.shielded ? 0.5 : 1);
+  }
+
+  claim(s, e) {
+    this.release(s);
+    s.claim = e;
+    s.est = this.expectedHit(e, s.dmg);
+    e.pending += s.est;
+  }
+
+  release(s) {
+    if (!s.claim) return;
+    s.claim.pending = Math.max(0, s.claim.pending - s.est);
+    s.claim = null;
+  }
+
   damageMult() {
     const S = this.S;
     let m = 1;
@@ -599,6 +629,7 @@ export class Run {
     this.hp = Math.min(S.maxHp, this.hp + S.regen * dt);
     if (this.demonT > 0) this.demonT = Math.max(0, this.demonT - dt);
     if (this.towerFlash > 0) this.towerFlash -= dt;
+    if (this.fireT > 0) this.fireT -= dt;
     if (S.shieldEvery && !this.shieldReady) {
       this.shieldAcc += dt;
       if (this.shieldAcc >= S.shieldEvery) this.shieldReady = true;
@@ -607,7 +638,7 @@ export class Run {
     const period = 1 / S.atkSpeed;
     this.atkAcc = Math.min(this.atkAcc + dt, period * 4);
     while (this.atkAcc >= period) {
-      const targets = this.nearestN(this.rand() < S.msChance ? S.msTargets : 1, S.range);
+      const targets = this.openTargets(this.rand() < S.msChance ? S.msTargets : 1, S.range);
       if (!targets.length) {
         this.atkAcc = Math.min(this.atkAcc, period);
         break;
@@ -615,13 +646,15 @@ export class Run {
       this.atkAcc -= period;
       this.target = targets[0];
       this.aim = Math.atan2(targets[0].y, targets[0].x);
+      this.fireT = 0.12;
       this.shotCount++;
       const over = S.overcharge && this.shotCount % 10 === 0 ? S.overcharge : 1;
       for (const t of targets) {
         const crit = this.rand() < S.critChance;
         const dmg = S.damage * this.damageMult() * (crit ? S.critFactor : 1) * over;
         const bounces = this.rand() < S.bounceChance ? S.bounceTargets : 0;
-        this.fireShot(Math.cos(this.aim) * WORLD.towerRadius, Math.sin(this.aim) * WORLD.towerRadius, t, dmg, crit, { bounces, pierce: S.pierce, big: over > 1 });
+        const shot = this.fireShot(0, 0, t, dmg, crit, { bounces, pierce: S.pierce, big: over > 1 });
+        if (shot) this.claim(shot, t);
       }
       this.sfx.push('shot');
     }
@@ -668,16 +701,43 @@ export class Run {
   }
 
   fireShot(x, y, target, dmg, crit, opts = {}) {
-    if (this.shots.length > 600) return;
-    this.shots.push({ x, y, target, dmg, crit, bounces: opts.bounces || 0, pierce: opts.pierce || 0, noArc: !!opts.noArc, hit: opts.hit || null, big: !!opts.big, speed: 70 });
+    if (this.shots.length > 600) return null;
+    const s = { x, y, target, dmg, crit, bounces: opts.bounces || 0, pierce: opts.pierce || 0, noArc: !!opts.noArc, hit: opts.hit || null, big: !!opts.big, speed: 70, claim: null, est: 0 };
+    this.shots.push(s);
+    return s;
+  }
+
+  // A shot whose enemy died on the way (to an orb, a mine, an arc) looks for
+  // another one that still needs the damage, then for any enemy close by,
+  // and only then fades out where it is.
+  retarget(s) {
+    this.release(s);
+    let best = null;
+    let bd = 30;
+    const range = this.S.range + 2;
+    for (const e of this.enemies) {
+      if (e.dead || e.pending >= e.hp || (s.hit && s.hit.has(e.id))) continue;
+      if (Math.hypot(e.x, e.y) > range) continue;
+      const d = Math.hypot(e.x - s.x, e.y - s.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (best) {
+      s.target = best;
+      if (!s.missile) this.claim(s, best);
+      return true;
+    }
+    s.target = this.nearest(s.x, s.y, 14, s.hit);
+    if (s.target) return true;
+    s.done = true;
+    this.addFx({ type: 'fizzle', x: s.x, y: s.y, color: s.crit ? '#ffd35a' : '#fff1d6', ttl: 0.3 });
+    return false;
   }
 
   updateShots(dt) {
     const S = this.S;
     for (const s of this.shots) {
       if (!s.target || s.target.dead) {
-        s.target = this.nearest(s.x, s.y, 14, s.hit);
-        if (!s.target) { s.done = true; continue; }
+        if (!this.retarget(s)) continue;
       }
       const t = s.target;
       const dx = t.x - s.x;
@@ -698,6 +758,7 @@ export class Run {
 
   shotHit(s, t) {
     const S = this.S;
+    this.release(s);
     if (s.missile) {
       s.done = true;
       this.addFx({ type: 'ring', x: t.x, y: t.y, r0: 0.5, r1: 3.5, color: '#ffb547', ttl: 0.3 });

@@ -201,3 +201,106 @@ test('in-run upgrades cost cash and respect the max', () => {
   assert.equal(r2.bought, 80);
   assert.ok(!run.canUpgrade('critChance'));
 });
+
+// ---------------------------------------------------------------------------
+// Version 2 (2026-10-17): saves made by the first public version must keep
+// working. The fixture was written by that version's own code (commit 55ce892)
+// and holds a run in progress.
+
+import { readFileSync } from 'node:fs';
+import { load, SAVE_KEY } from '../js/state.js';
+import { ENEMIES, enemyHpAt } from '../js/data.js';
+
+const fixture = (name) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8');
+
+test('a version 1 save loads with everything in it, and its run carries on', () => {
+  const raw = fixture('save-v1.json');
+  const old = JSON.parse(raw);
+  const store = { getItem: (k) => (k === SAVE_KEY ? raw : null) };
+  const s = load(store, old.lastSeen);
+  for (const k of ['coins', 'gems', 'stones', 'shards', 'tier', 'tiersUnlocked']) assert.equal(s[k], old[k], k);
+  assert.deepEqual(s.ws, old.ws);
+  assert.deepEqual(s.best, old.best);
+  assert.deepEqual(s.cards, old.cards);
+  assert.deepEqual(s.equippedCards, old.equippedCards);
+  assert.deepEqual(s.modules, old.modules);
+  assert.deepEqual(s.uws, old.uws);
+  assert.deepEqual(s.research, old.research);
+
+  const run = new Run(s, { tier: s.run.tier, snapshot: s.run, rand: seeded(3) });
+  assert.equal(run.wave, old.run.wave);
+  assert.deepEqual(run.lv, old.run.lv);
+  assert.equal(Math.round(run.cash), Math.round(old.run.cash));
+  for (let i = 0; i < 60 * 120 && !run.over; i++) run.step(1 / 60);
+  assert.ok(run.wave > old.run.wave);
+  finite(run.result());
+  const fin = finishRun(s, run.result());
+  assert.ok(fin.stones >= 0 && s.coins > old.coins);
+  finite(computeStats(s, null));
+});
+
+test('a version 1 export code imports', () => {
+  const s = importSave(fixture('save-v1.code.txt'));
+  const old = JSON.parse(fixture('save-v1.json'));
+  assert.deepEqual(s.ws, old.ws);
+  assert.equal(s.run.wave, old.run.wave);
+});
+
+test('the stats panel shows the numbers the game uses', () => {
+  const s = JSON.parse(fixture('save-v1.json'));
+  const run = new Run(migrate(s, 0), { snapshot: s.run, rand: seeded(4) });
+  const S = run.S;
+  for (const [id, ex] of Object.entries(S.explain)) {
+    assert.equal(ex.total, S[id], id);
+    let v = ex.base;
+    for (const p of ex.parts) v = p.op === '×' ? v * p.v : p.op === '+' ? v + p.v : p.v;
+    assert.ok(Math.abs(v - S[id]) <= 1e-9 * Math.max(1, Math.abs(v)), `${id}: ${v} vs ${S[id]}`);
+  }
+  for (const type of Object.keys(ENEMIES)) {
+    const e = run.addEnemy(type, 30, 0);
+    assert.equal(e.maxHp, enemyHpAt(ENEMIES[type], run.wave, run.tier, S.enemyHpMult).total, type);
+  }
+});
+
+// A run with nothing on the field except what a test puts there.
+function quietRun() {
+  const s = newSave(0);
+  const run = new Run(s, { rand: seeded(9) });
+  run.spawnAcc = -1e9;
+  run.S.atkSpeed = 30;
+  run.S.critChance = 0;
+  run.S.msChance = 0;
+  run.S.bounceChance = 0;
+  const origins = [];
+  const fire = run.fireShot.bind(run);
+  run.fireShot = (x, y, ...a) => { origins.push([x, y]); return fire(x, y, ...a); };
+  return { run, fired: () => origins.length, origins };
+}
+
+test('the tower fires only the shots an enemy needs, from its centre', () => {
+  const { run, fired, origins } = quietRun();
+  const e = run.addEnemy('basic', 25, 0);
+  e.hp = e.maxHp = run.S.damage * 2.5; // three shots
+  for (let i = 0; i < 60 && !e.dead; i++) run.step(1 / 60);
+  assert.ok(e.dead);
+  assert.equal(fired(), 3);
+  assert.deepEqual(origins, [[0, 0], [0, 0], [0, 0]]);
+  assert.equal(run.shots.length, 0);
+});
+
+test('a shot whose enemy dies on the way goes on to another one', () => {
+  const { run } = quietRun();
+  const a = run.addEnemy('basic', 25, 0);
+  const b = run.addEnemy('basic', 0, 27);
+  a.hp = a.maxHp = b.hp = b.maxHp = run.S.damage * 0.5;
+  run.S.atkSpeed = 1;
+  run.atkAcc = 1; // exactly one shot ready, at the nearer enemy
+  run.updateTower(0);
+  run.atkAcc = -1e9;
+  assert.equal(run.shots.length, 1);
+  assert.equal(run.shots[0].target, a);
+  run.damage(a, 1e9, 'orbs');
+  for (let i = 0; i < 90 && !b.dead; i++) run.step(1 / 60);
+  assert.ok(b.dead, 'the shot moved on to the other enemy');
+  assert.equal(b.pending, 0);
+});

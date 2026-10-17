@@ -25,8 +25,12 @@ by playing.
 - **Modules**: four slots, five rarities, special effects from Epic up; level
   with shards, merge three into a rarer one.
 - **Tiers**: ten difficulty tiers that pay more.
-- **Idle coins** while away, daily gems, milestones, stats, save export and
-  import.
+- **Stats panel** (the bars icon, at home and in battle): every tower number
+  with the upgrade level it starts from, each lab, card, module and perk that
+  multiplies or adds to it, and the total; expected DPS, effective health and
+  what an enemy hit costs; and every enemy type at any wave and tier.
+- **Idle coins** while away, daily gems, milestones, save export and import.
+  Saves from earlier versions keep working (`tests/fixtures/save-v1.json`).
 
 Gems come from daily visits, milestones, bosses and a floating gem during runs.
 
@@ -41,7 +45,8 @@ Pages serves the repository root as it is.
 - `js/data.js` every number in the game
 - `js/game.js` the run simulation (no DOM, also runs in Node)
 - `js/state.js` the save, workshop, labs, cards, modules, idle earnings
-- `js/stats.js` folds everything into the stats a run uses
+- `js/stats.js` folds everything into the stats a run uses, and records how
+  each one was built; `js/statspanel.js` shows that record
 - `js/render.js` canvas drawing; `js/main.js` and `js/screens.js` the interface
 - `sw.js` offline cache; progress is saved in the browser's local storage
 
@@ -54,4 +59,6 @@ node tools/sim.mjs 8             # balance check: a bot plays 8 runs
 node tools/smoke.mjs             # phone-size browser test with screenshots (needs Playwright)
 ```
 
-When files change, bump `CACHE` in `sw.js` so installed copies refresh.
+When files change, bump `CACHE` in `sw.js` (and list new files in `FILES`) so
+installed copies refresh; they switch to the new version at the next quiet
+moment, never mid-battle.
