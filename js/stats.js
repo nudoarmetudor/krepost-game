@@ -2,7 +2,7 @@
 // upgrades and perks into one flat object the simulation reads every tick.
 
 import {
-  STAT_BY_ID, CARD_BY_ID, cardStars, UWS, MODULE_SLOT_BY_ID, LAB_BY_ID, PERK_BY_ID, RARITY, MODULE_RARITIES,
+  FORTITUDE, STAT_BY_ID, CARD_BY_ID, cardStars, UWS, MODULE_SLOT_BY_ID, LAB_BY_ID, PERK_BY_ID, RARITY, MODULE_RARITIES,
 } from './data.js';
 import { wsLevel, isUnlocked, labValue, moduleByUid, moduleMainValue, moduleEffectValue, uwState } from './state.js';
 
@@ -146,6 +146,7 @@ export function computeStats(save, run) {
     .add(perkL('ironskin'), p('ironskin') ? 0.12 : 0).add(modFxL('armor'), moduleFx(save, 'armor', 'bulwark', 0))
     .cap(0.95).v;
   S.defAbs = T('defAbs').mul(labL('defAbs'), 1 + lab('defAbs')).v;
+  S.fortitude = F('fortitude', 'Base', FORTITUDE.cap).v;
   S.thorns = T('thorns').mul(modFxL('armor'), moduleFx(save, 'armor', 'reflector', 1)).v;
   S.lifesteal = T('lifesteal').add(perkL('lifesteal'), 0.015 * p('lifesteal')).v;
   S.kbChance = T('kbChance').v;

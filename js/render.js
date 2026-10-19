@@ -257,15 +257,26 @@ export class Renderer {
       ctx.globalAlpha = Math.max(0.15, Math.min(1, edge + 0.15));
       ctx.save();
       ctx.translate(e.x, e.y);
-      if (d.shape === 'ring') {
-        ctx.strokeStyle = 'rgba(111,231,255,0.22)';
+      if (d.shape === 'ring' || d.heals) {
+        ctx.strokeStyle = d.heals ? 'rgba(182,255,138,0.2)' : 'rgba(111,231,255,0.22)';
         ctx.lineWidth = 0.22;
         ctx.setLineDash([0.8, 0.8]);
-        ctx.lineDashOffset = this.time * 2;
+        ctx.lineDashOffset = this.time * (d.heals ? -2 : 2);
         ctx.beginPath();
-        ctx.arc(0, 0, d.aura, 0, TAU);
+        ctx.arc(0, 0, d.heals ? d.healR : d.aura, 0, TAU);
         ctx.stroke();
         ctx.setLineDash([]);
+      }
+      if (e.windup > 0 && !e.leapt) {
+        // a Pouncer gathering itself: a tightening ring
+        const k = Math.min(1, e.windup / d.leapWind);
+        ctx.strokeStyle = d.color;
+        ctx.globalAlpha *= 0.4 + 0.6 * k;
+        ctx.lineWidth = 0.3;
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 2.2 * (1 - k) + 0.4, 0, TAU);
+        ctx.stroke();
+        ctx.globalAlpha = Math.max(0.15, Math.min(1, edge + 0.15));
       }
       ctx.rotate(d.shape === 'boss' ? e.angle + this.time * 0.4 : d.shape === 'ring' || d.shape === 'hex' ? e.angle + this.time * 0.8 : e.angle);
       shapePath(ctx, d.shape, r);
@@ -281,6 +292,23 @@ export class Renderer {
       ctx.fill();
       ctx.restore();
       ctx.globalAlpha = 1;
+      if (e.guard > 0) {
+        // the Phalanx shield faces the tower, one plate per hit it can still take
+        const n = d.guard;
+        const span = 2.2;
+        const gap = 0.12;
+        const seg = (span - gap * (n - 1)) / n;
+        ctx.lineWidth = 0.42;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < n; i++) {
+          const a0 = e.angle - span / 2 + i * (seg + gap);
+          ctx.strokeStyle = i < e.guard ? 'rgba(220,232,255,0.95)' : 'rgba(169,193,255,0.18)';
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.r + 0.75, a0, a0 + seg);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      }
       if (e.shielded) {
         ctx.strokeStyle = 'rgba(111,231,255,0.75)';
         ctx.lineWidth = 0.22;
@@ -629,6 +657,35 @@ function shapePath(ctx, shape, r) {
     case 'ring':
       ctx.arc(0, 0, r, 0, TAU);
       break;
+    case 'shield':
+      ctx.moveTo(r, 0);
+      ctx.lineTo(r * 0.3, r * 0.85);
+      ctx.lineTo(-r * 0.8, r * 0.6);
+      ctx.lineTo(-r * 0.8, -r * 0.6);
+      ctx.lineTo(r * 0.3, -r * 0.85);
+      break;
+    case 'chevron':
+      ctx.moveTo(r, 0);
+      ctx.lineTo(-r * 0.8, r * 0.85);
+      ctx.lineTo(-r * 0.3, 0);
+      ctx.lineTo(-r * 0.8, -r * 0.85);
+      break;
+    case 'cross': {
+      const a = r * 0.36;
+      ctx.moveTo(a, -r);
+      ctx.lineTo(a, -a);
+      ctx.lineTo(r, -a);
+      ctx.lineTo(r, a);
+      ctx.lineTo(a, a);
+      ctx.lineTo(a, r);
+      ctx.lineTo(-a, r);
+      ctx.lineTo(-a, a);
+      ctx.lineTo(-r, a);
+      ctx.lineTo(-r, -a);
+      ctx.lineTo(-a, -a);
+      ctx.lineTo(-a, -r);
+      break;
+    }
     case 'boss':
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * TAU;
