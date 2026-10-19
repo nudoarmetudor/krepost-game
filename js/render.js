@@ -1,6 +1,6 @@
 // Draws a run onto a canvas. Reads the run, never changes it.
 
-import { WORLD } from './data.js';
+import { WORLD, THEME_BY_ID } from './data.js';
 import { fmt } from './format.js';
 
 const TAU = Math.PI * 2;
@@ -313,6 +313,7 @@ export class Renderer {
 
   tower(run) {
     const ctx = this.ctx;
+    const th = THEME_BY_ID[run.save.settings.theme] || THEME_BY_ID.ember;
     const R = WORLD.towerRadius;
     const S = run.S;
     const hpFrac = Math.max(0, run.hp) / S.maxHp;
@@ -320,8 +321,8 @@ export class Renderer {
     const pulse = Math.max(0, run.fireT || 0) / 0.12;
     // glow
     const glow = ctx.createRadialGradient(0, 0, R * 0.5, 0, 0, R * 3.2);
-    glow.addColorStop(0, demon ? 'rgba(255,60,60,0.55)' : `rgba(255,181,71,${0.3 + 0.12 * pulse})`);
-    glow.addColorStop(1, 'rgba(255,181,71,0)');
+    glow.addColorStop(0, demon ? 'rgba(255,60,60,0.55)' : `rgba(${th.glow},${0.3 + 0.12 * pulse})`);
+    glow.addColorStop(1, `rgba(${th.glow},0)`);
     ctx.fillStyle = glow;
     ctx.beginPath();
     ctx.arc(0, 0, R * 3.2, 0, TAU);
@@ -342,7 +343,7 @@ export class Renderer {
       wall.addColorStop(1, '#222b45');
     }
     ctx.fillStyle = wall;
-    ctx.strokeStyle = demon ? '#ff5f5f' : '#ffb547';
+    ctx.strokeStyle = demon ? '#ff5f5f' : th.line;
     ctx.lineWidth = 0.32;
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -380,11 +381,11 @@ export class Renderer {
     // the core every shot leaves from: swells and brightens as it fires
     const cr = R * (0.3 + 0.07 * pulse);
     const core = ctx.createRadialGradient(0, 0, 0, 0, 0, cr * 1.6);
-    const hot = demon ? '255,120,120' : '255,214,140';
+    const hot = demon ? '255,120,120' : th.hot;
     core.addColorStop(0, '#fffaf0');
     core.addColorStop(0.35, `rgba(${hot},1)`);
-    core.addColorStop(0.7, demon ? 'rgba(255,60,60,0.85)' : 'rgba(255,160,40,0.85)');
-    core.addColorStop(1, 'rgba(255,140,30,0)');
+    core.addColorStop(0.7, demon ? 'rgba(255,60,60,0.85)' : `rgba(${th.mid},0.85)`);
+    core.addColorStop(1, `rgba(${th.mid},0)`);
     ctx.fillStyle = core;
     ctx.beginPath();
     ctx.arc(0, 0, cr * 1.6, 0, TAU);
@@ -392,7 +393,7 @@ export class Renderer {
     // slow rune ring around the core
     ctx.save();
     ctx.rotate(this.time * 0.6);
-    ctx.strokeStyle = demon ? 'rgba(255,120,120,0.5)' : 'rgba(255,200,120,0.45)';
+    ctx.strokeStyle = demon ? 'rgba(255,120,120,0.5)' : `rgba(${th.hot},0.45)`;
     ctx.lineWidth = 0.14;
     ctx.setLineDash([0.5, 0.45]);
     ctx.beginPath();

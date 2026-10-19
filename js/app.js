@@ -14,6 +14,7 @@ export const app = {
   refresh: () => {},
   startRun: () => {},
   continueRun: () => {},
+  startChallenge: () => {},
   openStats: () => {},
 };
 

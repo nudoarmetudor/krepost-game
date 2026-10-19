@@ -340,3 +340,126 @@ test('the first boss of tier 1 has half health and damage, later ones do not', (
   assert.ok(Math.abs(enemyDmgAt(boss, 20, 1).total - boss.dmg * enemyDmgScale(20, 1)) < 1e-9);
   assert.ok(Math.abs(enemyDmgAt(boss, 10, 1).total - boss.dmg * enemyDmgScale(10, 1) * 0.5) < 1e-9);
 });
+
+// ---------------------------------------------------------------------------
+// Version 3 (2026-10-19): missions, the weekly challenge, seasons, card
+// collections, refining, tabs that open as the player gets there.
+
+import {
+  ensureMissions, claimMission, missionDone, ensureChallenge, challengeMods, ensureSeason, seasonThemes,
+  cardSetProgress, canRefine, buyRefine, refineCost, tabOpen, bestTierForCoins, weekKey,
+} from '../js/meta.js';
+import { CARD_SETS, CHALLENGE_REWARDS } from '../js/data.js';
+
+const runResult = (o) => ({ tier: 1, wave: 20, coins: 1000, cash: 0, kills: 400, bossKills: 2, simSec: 300, damage: 0, ...o });
+
+test('missions come with the first run, count runs, and pay once when claimed', () => {
+  const now = new Date(2026, 9, 20, 12).getTime();
+  const s = newSave(now);
+  assert.equal(ensureMissions(s, now), false); // nothing before the first run
+  finishRun(s, runResult({}), now);
+  assert.equal(s.missions.daily.length, 3);
+  assert.equal(s.missions.weekly.length, 2);
+  const runs = s.missions.daily.findIndex((x) => x.kind === 'runs');
+  const x = s.missions.daily[runs >= 0 ? runs : 0];
+  for (let i = 0; i < 40 && !missionDone(x); i++) finishRun(s, runResult({ wave: 200, coins: 1e6, kills: 1e5, bossKills: 50 }), now);
+  assert.ok(missionDone(x));
+  const gems = s.gems;
+  assert.ok(claimMission(s, 'daily', s.missions.daily.indexOf(x)));
+  assert.equal(s.gems, gems + x.gems);
+  assert.equal(claimMission(s, 'daily', s.missions.daily.indexOf(x)), null);
+  // the same date gives the same missions on any device
+  const t = newSave(now);
+  finishRun(t, runResult({}), now);
+  assert.deepEqual(t.missions.daily.map((m) => m.kind), s.missions.daily.map((m) => m.kind));
+});
+
+test('a challenge run uses its modifiers, pays its stones once a week, and sets no records', () => {
+  const now = new Date(2026, 9, 21, 12).getTime();
+  const s = newSave(now);
+  s.tiersUnlocked = 3;
+  const c = ensureChallenge(s, now);
+  assert.equal(c.tier, 2);
+  assert.equal(c.mods.length, 2);
+  assert.equal(c.week, weekKey(now));
+  const run = new Run(s, { tier: c.tier, challenge: { week: c.week, mods: ['glass', 'giants'] }, rand: seeded(3) });
+  const plain = new Run(s, { tier: c.tier, rand: seeded(3) });
+  assert.ok(Math.abs(run.S.maxHp - plain.S.maxHp * 0.5) < 1e-9);
+  assert.equal(run.bossEvery(), 5);
+  assert.deepEqual(challengeMods(['horde']).count, 2);
+  const back = new Run(s, { tier: 2, snapshot: run.snapshot() });
+  assert.equal(back.bossEvery(), 5);
+  const stones = s.stones;
+  const fin = finishRun(s, { ...runResult({ tier: 2, wave: 30 }), challenge: true, week: c.week }, now);
+  assert.equal(s.best[2], undefined);
+  assert.equal(s.tiersUnlocked, 3);
+  const want = CHALLENGE_REWARDS.filter((r) => r.wave <= 30).reduce((a, r) => a + Math.round(r.stones * 1.25), 0);
+  assert.equal(fin.challenge.reduce((a, r) => a + r.stones, 0), want);
+  assert.equal(s.stones, stones + fin.stones + want);
+  const again = finishRun(s, { ...runResult({ tier: 2, wave: 30 }), challenge: true, week: c.week }, now);
+  assert.equal(again.challenge.length, 0);
+});
+
+test('a season counts waves and hands out its two colours, then a crest', () => {
+  const now = new Date(2026, 10, 20, 12).getTime();
+  const s = newSave(now);
+  const se = ensureSeason(s, now);
+  assert.equal(se.id, 2);
+  const [a, b] = seasonThemes(se.id);
+  assert.notEqual(a.id, 'ember');
+  let got = [];
+  for (let i = 0; i < 12; i++) got = got.concat(finishRun(s, runResult({ wave: 200 }), now).season);
+  assert.ok(s.themes.includes(a.id) && s.themes.includes(b.id));
+  assert.deepEqual(s.crests, [2]);
+  assert.equal(got.length, 3);
+});
+
+test('a full card collection pays its bonus without being equipped', () => {
+  const s = newSave(0);
+  const set = CARD_SETS[0];
+  const before = computeStats(s, null).coinMult;
+  for (const c of CARDS.filter((x) => x.rarity === set.rarity)) s.cards[c.id] = CARD_STAR_COPIES[set.stars - 1];
+  assert.ok(cardSetProgress(s, set).done);
+  assert.ok(Math.abs(computeStats(s, null).coinMult - before * (1 + set.coins)) < 1e-9);
+});
+
+test('a maxed stat refines 1% a level, a stat below max does not', () => {
+  const s = newSave(0);
+  s.coins = 1e15;
+  assert.equal(canRefine(s, 'critChance'), false);
+  s.ws.critChance = 80;
+  const before = computeStats(s, null).critChance;
+  const cost = refineCost(s, 'critChance');
+  assert.ok(buyRefine(s, 'critChance'));
+  assert.equal(s.coins, 1e15 - cost);
+  assert.ok(Math.abs(computeStats(s, null).critChance - before * 1.01) < 1e-9);
+  s.ws.msTargets = 5;
+  assert.equal(canRefine(s, 'msTargets'), false);
+});
+
+test('tabs open as the player gets there, and old saves keep everything open', () => {
+  const s = newSave(0);
+  assert.deepEqual(['labs', 'ultimates', 'cards', 'modules'].map((t) => tabOpen(s, t)), [false, false, false, false]);
+  finishRun(s, runResult({ wave: 30 }));
+  assert.equal(tabOpen(s, 'labs'), true);
+  assert.equal(tabOpen(s, 'cards'), true);
+  const raw = fixture('save-v1.json');
+  const old = load({ getItem: (k) => (k === SAVE_KEY ? raw : null) });
+  assert.deepEqual(['labs', 'ultimates', 'cards', 'modules'].map((t) => tabOpen(old, t)), [true, true, true, true]);
+  assert.ok(Array.isArray(old.missions.daily) && old.challenge && old.season && old.themes.includes('ember'));
+  assert.equal(old.settings.speed, JSON.parse(fixture('save-v1.json')).settings.speed);
+});
+
+test('Home recommends the tier that paid the most coins per minute lately', () => {
+  const s = newSave(0);
+  s.tiersUnlocked = 3;
+  finishRun(s, runResult({ tier: 1, coins: 3000, simSec: 300 }));
+  assert.equal(bestTierForCoins(s), null);
+  finishRun(s, runResult({ tier: 2, coins: 9000, simSec: 300 }));
+  finishRun(s, runResult({ tier: 3, coins: 6000, simSec: 300 }));
+  assert.equal(bestTierForCoins(s).tier, 2);
+});
+
+test('a new player starts at double speed', () => {
+  assert.equal(newSave(0).settings.speed, 2);
+});

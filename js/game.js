@@ -7,6 +7,7 @@ import {
 } from './data.js';
 import { computeStats } from './stats.js';
 import { isUnlocked, rollModule } from './state.js';
+import { challengeMods } from './meta.js';
 
 const TAU = Math.PI * 2;
 const MAX_ENEMIES = 450;
@@ -14,12 +15,15 @@ const MAX_FX = 260;
 const MAX_MINES = 60;
 
 export class Run {
-  constructor(save, { tier = save.tier, rand = Math.random, snapshot = null } = {}) {
+  constructor(save, { tier = save.tier, rand = Math.random, snapshot = null, challenge = null } = {}) {
     this.save = save;
     this.rand = rand;
     this.tier = tier;
     this.lv = {};
     this.perks = {};
+    // a weekly challenge run: { week, mods: [ids] }
+    this.challenge = snapshot ? snapshot.challenge || null : challenge;
+    this.mods = this.challenge ? challengeMods(this.challenge.mods) : null;
     this.S = computeStats(save, this);
     this.wave = 1;
     this.waveTime = 0;
@@ -91,7 +95,7 @@ export class Run {
       lv: { ...this.lv }, perks: { ...this.perks }, perkCounter: this.perkCounter, pendingPerks: this.pendingPerks,
       simTime: this.simTime, secondWindUsed: this.secondWindUsed, demonUsed: this.demonUsed,
       gemsFound: this.gemsFound, shardsFound: this.shardsFound, gemAcc: this.gemAcc,
-      damageBySource: { ...this.damageBySource },
+      damageBySource: { ...this.damageBySource }, challenge: this.challenge,
     };
   }
 
@@ -105,7 +109,7 @@ export class Run {
     });
     this.lv = { ...(s.lv || {}) };
     this.perks = { ...(s.perks || {}) };
-    this.bossSpawned = this.wave % 10 === 0 ? this.wave : 0;
+    this.bossSpawned = this.wave % this.bossEvery() === 0 ? this.wave : 0;
     this.recompute();
     this.hp = Math.max(1, (s.hpFrac || 1) * this.S.maxHp);
   }
@@ -258,8 +262,8 @@ export class Run {
     this.simTime += dt;
     this.waveTime += dt;
 
-    // boss at the start of every tenth wave
-    if (this.wave % 10 === 0 && this.bossSpawned !== this.wave) {
+    // boss at the start of every tenth wave (more often in some challenges)
+    if (this.wave % this.bossEvery() === 0 && this.bossSpawned !== this.wave) {
       this.bossSpawned = this.wave;
       this.spawn('boss');
       this.shake = 0.6;
@@ -301,6 +305,10 @@ export class Run {
 
     if (this.hp <= 0) this.onDefeat();
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
+  }
+
+  bossEvery() {
+    return this.mods ? this.mods.bossEvery : 10;
   }
 
   collectGem() {
@@ -370,7 +378,8 @@ export class Run {
   spawn(type) {
     if (this.enemies.length >= MAX_ENEMIES) return null;
     if (!type) {
-      const table = spawnTable(this.wave, this.tier);
+      let table = spawnTable(this.wave, this.tier);
+      if (this.mods && this.mods.lancers !== 1) table = table.map(([t, w]) => [t, t === 'ranged' ? w * this.mods.lancers : w]);
       const total = table.reduce((a, [, w]) => a + w, 0);
       let x = this.rand() * total;
       type = table[0][0];
@@ -389,7 +398,7 @@ export class Run {
     const e = {
       id: this.nextId++, type, def, x, y, hp, maxHp: hp,
       dmg: enemyDmgAt(def, this.wave, this.tier).total,
-      speed: def.speed * (0.92 + this.rand() * 0.16),
+      speed: def.speed * (0.92 + this.rand() * 0.16) * (this.mods ? this.mods.speed : 1),
       r: def.r, boss: !!def.boss, atkAcc: 0, fireAcc: this.rand(), slow: 0, hitFlash: 0,
       wave: this.wave, angle: Math.atan2(-y, -x), pending: 0,
     };
@@ -1038,6 +1047,7 @@ export class Run {
       kills: this.kills, bossKills: this.bossKills, simSec: this.simTime, damage: this.damageDealt,
       gems: this.gemsFound, shards: this.shardsFound, modules: this.modulesFound.length,
       damageBySource: this.damageBySource,
+      challenge: !!this.challenge, week: this.challenge ? this.challenge.week : null,
     };
   }
 }

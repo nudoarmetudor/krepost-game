@@ -118,7 +118,7 @@ export function enemyHpAt(def, wave, tier, hpMult = 1) {
   const parts = [
     { label: `Wave ${wave}`, op: '×', v: enemyHpScale(wave, 1) },
     { label: `Tier ${tier}`, op: '×', v: t.hp },
-    { label: 'Perk: Bounty', op: '×', v: hpMult },
+    { label: 'Perk or challenge', op: '×', v: hpMult },
   ];
   if (def.boss) parts.push({ label: 'Boss, +15% every 10 waves', op: '×', v: 1 + Math.floor(wave / 10) * 0.15 });
   parts.push({ label: 'First boss, gentler', op: '×', v: firstBoss(def, wave, tier) });
@@ -475,3 +475,82 @@ export const BOSS_MODULE_CHANCE = 0.03;
 export const OFFLINE_BASE_RATE = 0.10; // share of recent coins/second earned while away
 export const IDLE_RUNS = 5; // idle coins follow the average of this many recent runs
 export const OFFLINE_BASE_CAP_H = 12;
+
+// ------------------------------------------------------------ workshop refine
+// A stat at its workshop maximum can be refined: each level adds 1% to it.
+export const REFINE = { per: 0.01, max: 50, first: 1.6, g: 1.12 };
+const NOT_REFINABLE = new Set(['msTargets', 'bounceTargets', 'orbs']);
+export function refinable(stat) {
+  return stat.max < 6000 && !NOT_REFINABLE.has(stat.id);
+}
+
+// --------------------------------------------------------------- card sets
+// Owning every card of a rarity at enough stars pays a bonus, equipped or not.
+export const CARD_SETS = [
+  { rarity: 'common', stars: 3, name: 'Common collection', desc: 'Coins +5%', coins: 0.05 },
+  { rarity: 'rare', stars: 3, name: 'Rare collection', desc: 'Damage and max health +5%', damage: 0.05, health: 0.05 },
+  { rarity: 'epic', stars: 2, name: 'Epic collection', desc: 'Coins and damage +10%', coins: 0.1, damage: 0.1 },
+];
+
+// ---------------------------------------------------------------- missions
+// Three a day and two a week, picked from these by the date. n(save) sets the
+// target from the player's own records, so they stay reachable but not free.
+export const DAILY_MISSIONS = [
+  { kind: 'reach', gems: 15 },
+  { kind: 'runs', n: 3, gems: 10 },
+  { kind: 'bosses', n: 4, gems: 10 },
+  { kind: 'kills', gems: 10 },
+  { kind: 'coins', gems: 10 },
+];
+export const WEEKLY_MISSIONS = [
+  { kind: 'reach', plus: 10, gems: 60, stones: 15 },
+  { kind: 'bosses', n: 30, gems: 40, stones: 10 },
+  { kind: 'runs', n: 20, gems: 40, stones: 10 },
+];
+
+// ------------------------------------------------------- weekly challenge
+// Each week two of these shape a special run on a fixed tier. Stones at
+// set waves, once a week.
+export const CHALLENGE_MODS = [
+  { id: 'glass', name: 'Glass Walls', desc: 'Max health ×0.5, damage ×1.6', hp: 0.5, dmg: 1.6 },
+  { id: 'horde', name: 'Horde', desc: 'Twice the enemies, each with 60% health', count: 2, ehp: 0.6 },
+  { id: 'siege', name: 'Lancer Siege', desc: 'Four times as many Lancers', lancers: 4 },
+  { id: 'lean', name: 'Lean Times', desc: 'Cash ×0.5, but 300 cash to start', cash: 0.5, startCash: 300 },
+  { id: 'rush', name: 'Rush', desc: 'Enemies move 35% faster', speed: 1.35 },
+  { id: 'giants', name: 'Giants', desc: 'A boss every 5 waves', bossEvery: 5 },
+  { id: 'fog', name: 'Fog', desc: 'Range ×0.75', range: 0.75 },
+];
+export const CHALLENGE_REWARDS = [
+  { wave: 10, stones: 3 }, { wave: 25, stones: 6 }, { wave: 50, stones: 10 },
+  { wave: 75, stones: 15 }, { wave: 100, stones: 25 }, { wave: 150, stones: 40 },
+];
+
+// ----------------------------------------------------------------- seasons
+// Four-week seasons count the waves you survive. Rewards are looks only:
+// they change nothing about how strong the tower is.
+export const SEASON_EPOCH = Date.UTC(2026, 9, 19); // a Monday
+export const SEASON_DAYS = 28;
+export const SEASON_REWARDS = [{ waves: 250 }, { waves: 800 }, { waves: 2000 }];
+
+// Tower colours: the default plus the ones seasons hand out, two a season.
+export const THEMES = [
+  { id: 'ember', name: 'Ember', glow: '255,181,71', line: '#ffb547', hot: '255,214,140', mid: '255,160,40' },
+  { id: 'frost', name: 'Frost', glow: '111,231,255', line: '#6fe7ff', hot: '200,245,255', mid: '60,190,255' },
+  { id: 'verdant', name: 'Verdant', glow: '124,245,168', line: '#7cf5a8', hot: '210,255,220', mid: '60,210,120' },
+  { id: 'royal', name: 'Royal', glow: '199,146,255', line: '#c792ff', hot: '235,215,255', mid: '160,100,255' },
+  { id: 'crimson', name: 'Crimson', glow: '255,95,122', line: '#ff5f7a', hot: '255,200,205', mid: '240,60,90' },
+  { id: 'gold', name: 'Gilded', glow: '255,216,77', line: '#ffd84d', hot: '255,248,200', mid: '240,190,40' },
+  { id: 'abyss', name: 'Abyss', glow: '90,120,255', line: '#7d93ff', hot: '210,220,255', mid: '70,90,240' },
+  { id: 'jade', name: 'Jade', glow: '102,255,209', line: '#66ffd1', hot: '210,255,240', mid: '40,210,170' },
+  { id: 'dusk', name: 'Dusk', glow: '255,155,242', line: '#ff9bf2', hot: '255,225,250', mid: '230,100,210' },
+];
+export const THEME_BY_ID = Object.fromEntries(THEMES.map((t) => [t.id, t]));
+
+// ------------------------------------------------------------- opening up
+// Tabs appear as the player reaches what they are for.
+export const TAB_INTROS = {
+  labs: 'Labs research permanent bonuses in real time, also while the game is closed. Start one now: it finishes while you play.',
+  ultimates: 'Stones unlock Ultimate weapons, which fire on their own. Each one you unlock makes the next dearer, so choose the order.',
+  cards: 'Gems buy cards. Equip them in your slots; copies add stars. A full set of one rarity pays a bonus even when not equipped.',
+  modules: 'Modules fit four slots and grow with shards from bosses. Three identical ones merge into a rarer one.',
+};

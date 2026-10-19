@@ -9,8 +9,14 @@ import {
   STATS, CATS, LABS, labTimeSec, labCost, LAB_SLOT_COSTS, CARDS, CARD_BY_ID, cardStars, CARD_STAR_COPIES,
   CARD_PACK, CARD_SLOT_COSTS, RARITY, UWS, uwParamCost, PERK_BY_ID, MODULE_SLOTS, MODULE_SLOT_BY_ID,
   MODULE_RARITIES, MODULE_MAX_LEVEL, MODULE_PACK_COST, MODULE_MERGE_COUNT, moduleLevelCost, TIERS,
-  MILESTONES, wsCost,
+  MILESTONES, wsCost, TAB_INTROS, CARD_SETS, CHALLENGE_MODS, CHALLENGE_REWARDS, SEASON_REWARDS, THEMES, THEME_BY_ID,
+  refinable, REFINE, UW_UNLOCK_COSTS,
 } from './data.js';
+import {
+  tabOpen, ensureMissions, missionText, missionDone, claimMission, ensureChallenge, challengeReward, weekEnds,
+  ensureSeason, seasonEnds, seasonRewardOf, cardSetProgress, canRefine, refineCost, buyRefine, refineLevel,
+  bestTierForCoins,
+} from './meta.js';
 import {
   wsLevel, isUnlocked, workshopCost, buyWorkshop, unlockStat, wsDiscount, labLevel, labSpeedBonus, researchFor,
   startResearch, rushCost, rushResearch, buyLabSlot, openCards, toggleCard, buyCardSlot, uwState, unlockUw,
@@ -34,23 +40,45 @@ const TABS = [
 export function renderTopbar() {
   const s = app.save;
   const bar = document.getElementById('topbar');
-  bar.replaceChildren(
+  bar.replaceChildren(...[
     h('div', { class: 'brand' }, 'KREPOST'),
     h('span', { class: 'chip' }, cur('coin', fmt(s.coins))),
     h('span', { class: 'chip' }, cur('gem', fmtInt(s.gems))),
-    h('span', { class: 'chip' }, cur('stone', fmtInt(s.stones))),
+    tabOpen(s, 'ultimates') ? h('span', { class: 'chip' }, cur('stone', fmtInt(s.stones))) : null,
     h('button', { class: 'icon-btn', 'aria-label': 'Tower and enemy stats', onclick: () => { play('click'); app.openStats(); } }, icon('stats')),
     h('button', { class: 'icon-btn', 'aria-label': 'Settings', onclick: () => app.go('more') }, icon('gear')),
-  );
+  ].filter(Boolean));
 }
 
 export function renderTabs() {
   const nav = document.getElementById('tabs');
   const s = app.save;
   const labIdle = s.research.length < s.labSlots;
-  nav.replaceChildren(...TABS.map(([id, label, ic]) =>
-    h('button', { class: app.screen === id ? 'on' : '', onclick: () => { play('click'); app.go(id); } },
-      icon(ic), label, id === 'labs' && labIdle && s.stats.runs > 0 ? h('span', { class: 'dot' }) : null)));
+  // a tab appears when the player reaches what it is for, with a dot until opened
+  nav.replaceChildren(...TABS.filter(([id]) => tabOpen(s, id)).map(([id, label, ic]) => {
+    const fresh = TAB_INTROS[id] && !s.seenTabs[id];
+    const dot = fresh || (id === 'labs' && labIdle && s.stats.runs > 0) || (id === 'home' && missionsReady(s));
+    return h('button', { class: app.screen === id ? 'on' : '', onclick: () => { play('click'); app.go(id); } },
+      icon(ic), label, dot ? h('span', { class: 'dot' + (fresh ? ' new' : '') }) : null);
+  }));
+}
+
+function missionsReady(s) {
+  const m = s.missions;
+  return [...(m.daily || []), ...(m.weekly || [])].some((x) => missionDone(x) && !x.claimed);
+}
+
+// One line the first time a tab is opened, until the player taps it away.
+function tabIntro(id) {
+  const s = app.save;
+  if (!TAB_INTROS[id] || s.seenTabs[id]) return null;
+  return h('div', { class: 'card intro' },
+    h('div', { class: 'row' }, h('span', { class: 'tag new' }, 'New'), h('span', { class: 'grow small' }, TAB_INTROS[id])),
+    h('button', { class: 'btn small', style: { marginTop: '8px' }, onclick: () => { s.seenTabs[id] = true; commit(); app.refresh(); } }, 'Got it'));
+}
+
+function progressBar(frac, color) {
+  return h('div', { class: 'bar' }, h('i', { style: { width: (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + '%', background: color || undefined } }));
 }
 
 function costBtn(curName, cost, can, onclick, label) {
@@ -67,14 +95,15 @@ function seg(options, value, onpick) {
 
 export function homeScreen() {
   const s = app.save;
+  const now = Date.now();
+  ensureMissions(s, now);
+  ensureSeason(s, now);
   const tier = s.tier;
   const best = s.best[tier] || 0;
-  const claimed = s.milestones['t' + tier] || [];
-  const next = MILESTONES.find((m) => !claimed.includes(m.wave));
   const canNext = tier < s.tiersUnlocked;
   const canPrev = tier > 1;
-  const nextTier = TIERS[s.tiersUnlocked];
   const hasRun = !!s.run;
+  const inChallenge = hasRun && !!s.run.challenge;
 
   const pickTier = (d) => {
     s.tier = Math.max(1, Math.min(s.tiersUnlocked, s.tier + d));
@@ -84,43 +113,137 @@ export function homeScreen() {
 
   const hero = h('div', { class: 'card hero' },
     h('div', { style: { width: '120px', height: '120px', margin: '0 auto' }, html: icon('logo').innerHTML }),
-    h('div', { class: 'tier-pick' },
-      h('button', { class: 'icon-btn', disabled: !canPrev || hasRun, onclick: () => pickTier(-1), 'aria-label': 'Previous tier' }, '‹'),
-      h('div', { class: 't' }, 'Tier ' + tier),
-      h('button', { class: 'icon-btn', disabled: !canNext || hasRun, onclick: () => pickTier(1), 'aria-label': 'Next tier' }, '›'),
-    ),
-    h('div', { class: 'muted small' }, best ? `Best wave on this tier: ${best}` : 'Not played yet'),
-    h('div', { class: 'muted small' }, `Enemies ×${fmt(TIERS[tier - 1].hp)} health · Coins ×${TIERS[tier - 1].coins}`),
+    s.tiersUnlocked > 1
+      ? h('div', { class: 'tier-pick' },
+        h('button', { class: 'icon-btn', disabled: !canPrev || hasRun, onclick: () => pickTier(-1), 'aria-label': 'Previous tier' }, '‹'),
+        h('div', { class: 't' }, 'Tier ' + tier),
+        h('button', { class: 'icon-btn', disabled: !canNext || hasRun, onclick: () => pickTier(1), 'aria-label': 'Next tier' }, '›'))
+      : null,
+    h('div', { class: 'muted small' }, best ? `Best wave${s.tiersUnlocked > 1 ? ' on this tier' : ''}: ${best}` : 'Not played yet'),
+    s.tiersUnlocked > 1 ? h('div', { class: 'muted small' }, `Enemies ×${fmt(TIERS[tier - 1].hp)} health · Coins ×${TIERS[tier - 1].coins}`) : null,
     hasRun
-      ? h('button', { class: 'btn primary battle-btn', onclick: () => app.continueRun() }, `CONTINUE · WAVE ${s.run.wave}`)
+      ? h('button', { class: 'btn primary battle-btn', onclick: () => app.continueRun() }, inChallenge ? `CONTINUE CHALLENGE · WAVE ${s.run.wave}` : `CONTINUE · WAVE ${s.run.wave}`)
       : h('button', { class: 'btn primary battle-btn', onclick: () => app.startRun() }, 'BATTLE'),
     hasRun ? h('button', { class: 'btn small', style: { marginTop: '8px' }, onclick: abandonRun }, 'Abandon this run') : null,
   );
 
-  const progress = h('div', { class: 'card' },
-    h('h3', {}, 'Progress'),
-    h('div', { class: 'kv', style: { marginTop: '8px' } },
-      h('span', {}, 'Next milestone'), h('b', {}, next ? `wave ${next.wave}` : 'all done'),
-      next ? h('span', { class: 'muted' }, 'Reward') : null,
-      next ? h('b', {}, `${Math.round(next.gems * tierReward(tier))} gems, ${Math.round(next.stones * tierReward(tier))} stones`) : null,
-      nextTier ? h('span', {}, `Tier ${s.tiersUnlocked + 1} opens at`) : null,
-      nextTier ? h('b', {}, `wave ${nextTier.unlockWave} on tier ${s.tiersUnlocked}`) : null,
-    ),
-  );
+  const page = h('div', { class: 'page' }, hero);
+  if (!s.seenIntro) page.append(h('div', { class: 'card' }, h('h3', {}, 'How to play'), howTo()));
+  page.append(goalsCard());
+  if (s.stats.runs > 0) page.append(missionsCard(now));
+  if (s.tiersUnlocked >= 2 || s.stats.runs >= 5) page.append(challengeCard(now));
+  if (s.stats.runs > 0) page.append(seasonCard(now));
 
   const idle = idleCps(s) * idleRate(s) * 3600;
-  const away = h('div', { class: 'card' },
+  const rec = bestTierForCoins(s);
+  page.append(h('div', { class: 'card' },
     h('h3', {}, 'While you are away'),
     h('div', { class: 'kv', style: { marginTop: '8px' } },
       h('span', {}, 'Idle coins'), h('b', {}, idle ? fmt(idle) + ' / hour' : 'finish a run first'),
       h('span', {}, 'Counted for up to'), h('b', {}, fmtTime(idleCapSec(s))),
-      h('span', {}, 'Labs running'), h('b', {}, `${s.research.length} of ${s.labSlots}`),
+      tabOpen(s, 'labs') ? h('span', {}, 'Labs running') : null, tabOpen(s, 'labs') ? h('b', {}, `${s.research.length} of ${s.labSlots}`) : null,
     ),
-  );
-
-  const page = h('div', { class: 'page' }, hero, progress, away);
-  if (!s.seenIntro) page.append(h('div', { class: 'card' }, h('h3', {}, 'How to play'), howTo()));
+    h('p', { class: 'muted small', style: { margin: '6px 0 0' } }, 'Idle coins follow your last five runs.'),
+    rec ? h('p', { class: 'small', style: { margin: '6px 0 0' } }, `Tier ${rec.tier} has paid you the most coins per minute lately (${fmt(rec.cpm)}).`) : null,
+  ));
   return page;
+}
+
+// What is next, and how far away: milestone, tier, ultimate weapon, lab slot.
+function goalsCard() {
+  const s = app.save;
+  const tier = s.tier;
+  const best = s.best[tier] || 0;
+  const claimed = s.milestones['t' + tier] || [];
+  const next = MILESTONES.find((m) => !claimed.includes(m.wave));
+  const rows = [];
+  const goal = (label, detail, frac, color) => rows.push(h('div', { class: 'goal' },
+    h('div', { class: 'row spread small' }, h('span', {}, label), h('b', {}, detail)), progressBar(frac, color)));
+  if (next) {
+    const prev = [...MILESTONES].reverse().find((m) => m.wave < next.wave);
+    goal(`Wave ${next.wave} on tier ${tier}: ${Math.round(next.gems * tierReward(tier))} gems${next.stones ? `, ${Math.round(next.stones * tierReward(tier))} stones` : ''}`,
+      best >= next.wave ? 'reached' : `${next.wave - best} waves to go`, (best - (prev ? prev.wave : 0)) / (next.wave - (prev ? prev.wave : 0)));
+  }
+  const nextTier = TIERS[s.tiersUnlocked];
+  if (nextTier) {
+    const on = s.best[s.tiersUnlocked] || 0;
+    goal(`Tier ${s.tiersUnlocked + 1} opens at wave ${nextTier.unlockWave} on tier ${s.tiersUnlocked}`,
+      `${Math.max(0, nextTier.unlockWave - on)} waves to go`, on / nextTier.unlockWave, 'var(--accent)');
+  }
+  if (tabOpen(s, 'ultimates') && unlockedCount(s) < UWS.length) {
+    const cost = uwUnlockCost(s);
+    goal('Next Ultimate weapon', s.stones >= cost ? 'ready' : `${fmtInt(cost - s.stones)} stones to go`, s.stones / cost, 'var(--stone)');
+  }
+  if (tabOpen(s, 'labs') && LAB_SLOT_COSTS[s.labSlots] !== undefined) {
+    const cost = LAB_SLOT_COSTS[s.labSlots];
+    goal(`Lab slot ${s.labSlots + 1}: one more research at a time, for good`, s.gems >= cost ? 'ready' : `${fmtInt(cost - s.gems)} gems to go`, s.gems / cost, 'var(--gem)');
+  }
+  return h('div', { class: 'card' }, h('h3', {}, 'Next goals'), h('div', { class: 'list', style: { marginTop: '8px' } }, rows));
+}
+
+function unlockedCount(s) {
+  return Object.values(s.uws).filter((u) => u && u.on).length;
+}
+
+function missionsCard(now) {
+  const s = app.save;
+  const m = s.missions;
+  const row = (list, x, i) => {
+    const done = missionDone(x);
+    return h('div', { class: 'mission' + (x.claimed ? ' claimed' : '') },
+      h('div', { class: 'grow' },
+        h('div', { class: 'row spread small' }, h('span', {}, missionText(x)), h('b', {}, x.claimed ? 'done' : `${fmt(x.have)} / ${fmt(x.n)}`)),
+        progressBar(x.have / x.n, done ? 'var(--cash)' : undefined)),
+      x.claimed ? null : h('button', { class: 'btn small' + (done ? ' primary' : ''), disabled: !done, onclick: () => {
+        if (claimMission(s, list, i)) { play('gem'); toast(`+${x.gems} gems${x.stones ? `, +${x.stones} stones` : ''}`); commit(); app.refresh(); }
+      } }, cur('gem', String(x.gems)), x.stones ? cur('stone', String(x.stones)) : null));
+  };
+  const tomorrow = new Date(now);
+  tomorrow.setHours(24, 0, 0, 0);
+  return h('div', { class: 'card' },
+    h('div', { class: 'row spread' }, h('h3', {}, 'Missions'), h('span', { class: 'muted small' }, `new ones in ${fmtTime((tomorrow - now) / 1000)}`)),
+    h('div', { class: 'list', style: { marginTop: '8px' } }, (m.daily || []).map((x, i) => row('daily', x, i))),
+    h('div', { class: 'row spread', style: { marginTop: '10px' } }, h('b', { class: 'small' }, 'This week'), h('span', { class: 'muted small' }, `ends in ${fmtTime((weekEnds(now) - now) / 1000)}`)),
+    h('div', { class: 'list', style: { marginTop: '6px' } }, (m.weekly || []).map((x, i) => row('weekly', x, i))),
+  );
+}
+
+function challengeCard(now) {
+  const s = app.save;
+  const c = ensureChallenge(s, now);
+  const mods = c.mods.map((id) => CHALLENGE_MODS.find((x) => x.id === id)).filter(Boolean);
+  const next = CHALLENGE_REWARDS.find((r) => !c.claimed.includes(r.wave));
+  const busy = !!s.run;
+  return h('div', { class: 'card challenge' },
+    h('div', { class: 'row spread' }, h('h3', {}, 'Weekly challenge'), h('span', { class: 'muted small' }, `ends in ${fmtTime((weekEnds(now) - now) / 1000)}`)),
+    h('p', { class: 'small', style: { margin: '6px 0' } }, `Tier ${c.tier}, with your own upgrades, and this week:`),
+    mods.map((m) => h('div', { class: 'small' }, h('b', {}, m.name), ' ', h('span', { class: 'muted' }, m.desc))),
+    h('div', { class: 'kv', style: { marginTop: '8px' } },
+      h('span', {}, 'Your best this week'), h('b', {}, c.best ? 'wave ' + c.best : 'not tried'),
+      h('span', {}, 'Next reward'), h('b', {}, next ? h('span', { class: 'row' }, `wave ${next.wave} · `, cur('stone', String(challengeReward(next, c.tier)))) : 'all collected'),
+    ),
+    h('p', { class: 'muted small', style: { margin: '6px 0' } }, 'Pays coins and stones as usual, plus stones at set waves once a week. It sets no records and opens no tiers.'),
+    h('button', { class: 'btn primary', style: { width: '100%' }, disabled: busy, onclick: () => app.startChallenge() }, busy ? 'Finish your current run first' : 'Start the challenge'),
+  );
+}
+
+function seasonCard(now) {
+  const s = app.save;
+  const se = ensureSeason(s, now);
+  const rows = SEASON_REWARDS.map((rw, i) => {
+    const it = seasonRewardOf(se.id, i);
+    const got = se.claimed.includes(i);
+    const th = it.theme ? THEME_BY_ID[it.theme] : null;
+    return h('div', { class: 'goal' },
+      h('div', { class: 'row spread small' },
+        h('span', { class: 'row' }, th ? h('i', { class: 'swatch', style: { background: th.line } }) : h('i', { class: 'swatch crest' }), it.name),
+        h('b', {}, got ? 'yours' : `${fmtInt(Math.max(0, rw.waves - se.waves))} waves to go`)),
+      progressBar(se.waves / rw.waves, th ? th.line : 'var(--accent)'));
+  });
+  return h('div', { class: 'card' },
+    h('div', { class: 'row spread' }, h('h3', {}, `Season ${se.id}`), h('span', { class: 'muted small' }, `ends in ${fmtTime((seasonEnds(now) - now) / 1000)}`)),
+    h('p', { class: 'muted small', style: { margin: '6px 0' } }, `Every wave you survive counts: ${fmtInt(se.waves)} so far. Rewards are looks only; pick a colour in Settings.`),
+    h('div', { class: 'list' }, rows));
 }
 
 export function howTo() {
@@ -181,6 +304,21 @@ export function workshopScreen() {
       }
     }
     const can = !maxed && s.coins >= total;
+    if (maxed && refinable(stat)) {
+      const r = refineLevel(s, stat.id);
+      const done = r >= REFINE.max;
+      const rc = refineCost(s, stat.id, wsDiscount(s, stat.cat));
+      list.append(h('div', { class: 'item refine' },
+        h('div', { class: 'grow' },
+          h('div', { class: 'row' }, h('span', { class: 'name' }, stat.name), h('span', { class: 'lv' }, `MAX+${r}`)),
+          h('div', { class: 'sub val' }, `${fmtV(stat.v(lvl))} ×${(1 + REFINE.per * r).toFixed(2)}${done ? '' : ` → ×${(1 + REFINE.per * (r + 1)).toFixed(2)}`}`),
+        ),
+        done ? h('span', { class: 'tag' }, 'MAX') : costBtn('coin', rc, canRefine(s, stat.id) && s.coins >= rc, () => {
+          if (buyRefine(s, stat.id, wsDiscount(s, stat.cat))) { play('buy'); commit(); app.refresh(); }
+        }, 'Refine'),
+      ));
+      continue;
+    }
     list.append(h('div', { class: 'item' },
       h('div', { class: 'grow' },
         h('div', { class: 'row' }, h('span', { class: 'name' }, stat.name), h('span', { class: 'lv' }, `Lv ${lvl}${stat.max < 6000 ? '/' + stat.max : ''}`)),
@@ -196,7 +334,7 @@ export function workshopScreen() {
 
   return h('div', { class: 'page' },
     h('div', { class: 'row spread' }, h('h2', {}, 'Workshop'), cur('coin', fmt(s.coins))),
-    h('p', { class: 'muted small', style: { margin: 0 } }, 'Permanent upgrades. Every run starts from these levels.'),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Permanent upgrades. Every run starts from these levels. A stat at its maximum can be refined, 1% at a time.'),
     seg(CATS.map((c) => [c.id, c.name]), tab, (v) => { app.ui.wsTab = v; app.refresh(); }),
     seg([[1, '×1'], [10, '×10'], ['max', 'Max']], mult, (v) => { app.ui.wsMult = v; app.refresh(); }),
     list,
@@ -264,8 +402,11 @@ export function labsScreen() {
 
   return h('div', { class: 'page' },
     h('div', { class: 'row spread' }, h('h2', {}, 'Labs'), cur('coin', fmt(s.coins))),
+    tabIntro('labs'),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Research runs in real time, also while the game is closed.'),
     running,
+    slotCost !== undefined && s.research.length ? h('p', { class: 'muted small', style: { margin: 0 } },
+      `Tip: finishing early costs 1 gem per 10 minutes left, but a lab slot (${slotCost} gems) runs one more research at a time for good.`) : null,
     slotCost !== undefined ? h('button', { class: 'btn', disabled: s.gems < slotCost, onclick: () => {
       if (buyLabSlot(s)) { play('buy'); commit(); app.refresh(); }
     } }, 'Open another lab slot ', cur('gem', String(slotCost))) : null,
@@ -322,7 +463,16 @@ export function cardsScreen() {
 
   return h('div', { class: 'page' },
     h('div', { class: 'row spread' }, h('h2', {}, 'Cards'), cur('gem', fmtInt(s.gems))),
+    tabIntro('cards'),
     h('p', { class: 'muted small', style: { margin: 0 } }, `Tap a card to equip or remove it. Slots in use: ${s.equippedCards.length} of ${s.cardSlots}. Copies raise a card's stars.`),
+    h('div', { class: 'card' }, h('h3', {}, 'Collections'),
+      h('p', { class: 'muted small', style: { margin: '4px 0 6px' } }, 'Every card of a rarity at enough stars pays a bonus, equipped or not.'),
+      h('div', { class: 'list' }, CARD_SETS.map((set) => {
+        const pr = cardSetProgress(s, set);
+        return h('div', { class: 'goal' },
+          h('div', { class: 'row spread small' }, h('span', {}, `${set.name}: ${set.desc}`), h('b', {}, pr.done ? 'active' : `${pr.have}/${pr.of} at ★${set.stars}`)),
+          progressBar(pr.have / pr.of, RARITY[set.rarity].color));
+      }))),
     h('div', { class: 'row' }, pack(1, CARD_PACK.one), pack(10, CARD_PACK.ten)),
     slotCost !== undefined ? h('button', { class: 'btn', disabled: s.gems < slotCost, onclick: () => {
       if (buyCardSlot(s)) { play('buy'); commit(); app.refresh(); }
@@ -394,6 +544,7 @@ export function modulesScreen() {
 
   return h('div', { class: 'page' },
     h('div', { class: 'row spread' }, h('h2', {}, 'Modules'), h('div', { class: 'row' }, cur('gem', fmtInt(s.gems)), cur('shard', fmtInt(s.shards)))),
+    tabIntro('modules'),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'One module per slot. Shards level them up; three identical modules merge into a rarer one. Epic and above add a special effect.'),
     slots,
     h('button', { class: 'btn primary', disabled: s.gems < MODULE_PACK_COST, onclick: () => {
@@ -468,6 +619,7 @@ export function ultimatesScreen() {
   }
   return h('div', { class: 'page' },
     h('div', { class: 'row spread' }, h('h2', {}, 'Ultimate Weapons'), cur('stone', fmtInt(s.stones))),
+    tabIntro('ultimates'),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Earn stones in every run (one per 10 waves, more on higher tiers) and from milestones. Ultimates fire on their own. Each weapon you unlock makes the next one dearer, so pick your order.'),
     list,
   );
@@ -532,6 +684,21 @@ export function moreScreen() {
         h('span', {}, 'Time in battle'), h('b', {}, fmtTime(st.playSec)),
       )),
     h('div', { class: 'card' },
+      h('h3', {}, 'Best wave by day'),
+      waveChart(),
+    ),
+    h('div', { class: 'card' },
+      h('h3', {}, 'Tower colour'),
+      h('p', { class: 'muted small' }, 'Seasons hand out new colours. They change only how the fortress looks.'),
+      h('div', { class: 'themes' }, THEMES.map((t) => {
+        const own = s.themes.includes(t.id);
+        return h('button', { class: 'theme' + (s.settings.theme === t.id ? ' on' : ''), disabled: !own, 'aria-label': t.name, onclick: () => {
+          s.settings.theme = t.id; play('click'); commit(); app.refresh();
+        } }, h('i', { class: 'swatch', style: { background: own ? t.line : 'var(--bg2)' } }), h('span', { class: 'small' }, own ? t.name : '?'));
+      })),
+      s.crests.length ? h('p', { class: 'small', style: { margin: '8px 0 0' } }, 'Season crests: ' + s.crests.map((c) => `S${c}`).join(' · ')) : null,
+    ),
+    h('div', { class: 'card' },
       h('h3', {}, 'Perk priority'),
       h('p', { class: 'muted small' }, labLevel(s, 'autoPerk') ? 'Auto Perk picks the highest of the offered perks in this order.' : 'Research Auto Perk in the Labs to have perks picked for you in this order.'),
       labLevel(s, 'autoPerk') ? h('div', { class: 'toggle' }, h('span', {}, 'Auto Perk on'),
@@ -550,6 +717,33 @@ export function moreScreen() {
     h('div', { class: 'card' }, h('h3', {}, 'How to play'), howTo()),
     h('p', { class: 'muted small', style: { textAlign: 'center' } }, 'Krepost · no ads, no purchases, no tracking · © 2026 Tudor Lapp · MIT licence'),
   );
+}
+
+// The best wave of each day on the current tier, last 30 days with a run.
+function waveChart() {
+  const s = app.save;
+  const tier = s.tier;
+  const days = Object.keys(s.history)
+    .map((k) => { const [y, m, d] = k.split('-').map(Number); return { k, t: new Date(y, m - 1, d).getTime(), w: s.history[k][tier] || 0 }; })
+    .filter((d) => d.w > 0 && Number.isFinite(d.t))
+    .sort((a, b) => a.t - b.t)
+    .slice(-30);
+  if (days.length < 2) return h('p', { class: 'muted small' }, `Play on two different days to see your tier ${tier} progress here.`);
+  const W = 300;
+  const H = 110;
+  const max = Math.max(...days.map((d) => d.w));
+  const x = (i) => 8 + (i / (days.length - 1)) * (W - 16);
+  const y = (w) => H - 16 - (w / max) * (H - 30);
+  const pts = days.map((d, i) => `${x(i).toFixed(1)},${y(d.w).toFixed(1)}`).join(' ');
+  const dots = days.map((d, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(d.w).toFixed(1)}" r="2.6" fill="var(--accent)"/>`).join('');
+  const label = (d) => { const dt = new Date(d.t); return `${dt.getDate()}.${dt.getMonth() + 1}`; };
+  return h('div', { class: 'chart', html: `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Best wave per day on tier ${tier}">`
+    + `<line x1="8" y1="${H - 16}" x2="${W - 8}" y2="${H - 16}" stroke="var(--line)"/>`
+    + `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${dots}`
+    + `<text x="8" y="${H - 3}" font-size="10" fill="var(--muted)">${label(days[0])}</text>`
+    + `<text x="${W - 8}" y="${H - 3}" font-size="10" fill="var(--muted)" text-anchor="end">${label(days[days.length - 1])}</text>`
+    + `<text x="${W - 8}" y="${y(max) - 5}" font-size="10" fill="var(--text)" text-anchor="end">wave ${max}</text></svg>` },
+  h('p', { class: 'muted small', style: { margin: '4px 0 0' } }, `Tier ${tier}; change the tier on Home.`));
 }
 
 function exportModal() {
