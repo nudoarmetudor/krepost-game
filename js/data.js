@@ -15,8 +15,9 @@ export const WORLD = {
 // more is coming than the cap lets in, strain builds and the cap rises by
 // `strain` for every second of it, so a tower that is overrun still falls; it
 // relaxes at `relax` seconds per second once the pressure is off. Health,
-// Regen, Lifesteal and Defense % decide how long the walls hold.
-export const FORTITUDE = { cap: 0.25, strain: 0.02, relax: 0.5 };
+// Regen, Lifesteal and Defense % decide how long the walls hold. Lifesteal
+// heals at most `lifesteal` × its own percentage of max health a second.
+export const FORTITUDE = { cap: 0.25, strain: 0.02, relax: 0.5, lifesteal: 1 };
 
 // ---------------------------------------------------------------- upgrades
 // One definition per tower stat. The effective level of a stat during a run

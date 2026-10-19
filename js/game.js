@@ -54,6 +54,7 @@ export class Run {
     this.pendingPerks = 0;
     this.perkChoicesNow = null;
     this.fortBucket = 0;
+    this.lsBucket = 0;
     this.strain = 0;
     this.strained = false;
     this.shieldAcc = 0;
@@ -508,10 +509,13 @@ export class Run {
       this.addFx({ type: 'ring', x: 0, y: 0, r0: 4, r1: 6, color: '#6fe7ff', ttl: 0.35 });
       return;
     }
-    const pass = Math.min(raw, this.fortBucket);
+    // Defense Absolute takes its slice off the hit, Fortitude lets in what the
+    // second still allows, Defense % takes its share of that
+    const hit = Math.max(0, raw - S.defAbs);
+    const pass = Math.min(hit, this.fortBucket);
     this.fortBucket -= pass;
-    if (pass < raw) this.strained = true;
-    const dmg = Math.max(0, pass - S.defAbs) * (1 - S.defPct);
+    if (pass < hit) this.strained = true;
+    const dmg = pass * (1 - S.defPct);
     this.hp -= dmg;
     if (dmg > 0) this.towerFlash = 0.12;
     if (attacker && !attacker.dead) {
@@ -700,6 +704,8 @@ export class Run {
     this.strained = false;
     const cap = this.fortCap();
     this.fortBucket = Math.min(cap, this.fortBucket + cap * dt);
+    const ls = S.maxHp * S.lifesteal * FORTITUDE.lifesteal;
+    this.lsBucket = Math.min(ls, this.lsBucket + ls * dt);
     if (this.demonT > 0) this.demonT = Math.max(0, this.demonT - dt);
     if (this.towerFlash > 0) this.towerFlash -= dt;
     if (this.fireT > 0) this.fireT -= dt;
@@ -844,7 +850,11 @@ export class Run {
     const dist = Math.hypot(t.x, t.y);
     const dmg = s.dmg * (1 + S.dmgPerMeter * dist);
     const dealt = this.damage(t, dmg, 'tower');
-    if (S.lifesteal > 0 && dealt > 0) this.hp = Math.min(S.maxHp, this.hp + Math.min(dealt * S.lifesteal, S.maxHp * 0.02));
+    if (S.lifesteal > 0 && dealt > 0 && this.lsBucket > 0) {
+      const heal = Math.min(dealt * S.lifesteal, S.maxHp * 0.02, this.lsBucket);
+      this.lsBucket -= heal;
+      this.hp = Math.min(S.maxHp, this.hp + heal);
+    }
     if (this.save.settings.dmgNumbers && (s.crit || s.big)) {
       this.addFx({ type: 'num', x: t.x, y: t.y - t.r, text: dmg, color: s.big ? '#ff9bf2' : '#ffd35a', ttl: 0.7 });
     }
