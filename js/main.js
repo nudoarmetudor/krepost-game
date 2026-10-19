@@ -4,9 +4,9 @@ import { app, commit } from './app.js';
 import { h, icon, cur, toast, modal, modalOpen } from './dom.js';
 import { fmt, fmtInt, fmtClock, fmtTime, setNotation } from './format.js';
 import { play, unlockAudio, setSound } from './audio.js';
-import { STATS, STAT_BY_ID, CATS, WORLD, PERK_BY_ID, UWS, TIERS } from './data.js';
+import { STATS, STAT_BY_ID, CATS, WORLD, PERK_BY_ID, UWS, TIERS, REFINE } from './data.js';
 import { load, applyOffline, claimDaily, finishRun, isUnlocked } from './state.js';
-import { ensureMissions, ensureChallenge, ensureSeason, missionsWaiting, challengeOpen } from './meta.js';
+import { ensureMissions, ensureChallenge, ensureSeason, missionsWaiting, challengeOpen, refineLevel } from './meta.js';
 import { Run } from './game.js';
 import { Renderer } from './render.js';
 import { openStats } from './statspanel.js';
@@ -400,7 +400,9 @@ function battleScreen() {
     for (const { stat, b, v, c, l } of buttons) {
       const lvl = Math.min(stat.max, (app.save.ws[stat.id] || 0) + run.runLevel(stat.id));
       const fmtV = (x) => (stat.f === 'big' ? fmt(x) : stat.f(x));
-      v.textContent = fmtV(stat.v(lvl));
+      // refining past the maximum scales the value, as in the stats panel
+      const rf = 1 + REFINE.per * refineLevel(app.save, stat.id);
+      v.textContent = fmtV(stat.id === 'swInterval' ? stat.v(lvl) / rf : stat.v(lvl) * rf);
       l.textContent = run.runLevel(stat.id) ? '+' + run.runLevel(stat.id) : '';
       if (!run.canUpgrade(stat.id)) {
         c.textContent = 'MAX';
