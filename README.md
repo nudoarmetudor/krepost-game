@@ -24,12 +24,25 @@ by playing.
 - **Perks**: a choice every few waves, including trade-offs.
 - **Modules**: four slots, five rarities, special effects from Epic up; level
   with shards, merge three into a rarer one.
-- **Tiers**: ten difficulty tiers that pay more.
+- **Tiers**: ten difficulty tiers that pay more. Tabs open as they become
+  useful (labs after the first run, ultimates with the first stones, cards with
+  the first milestone, modules from tier 3), each with a one-line intro.
+- **Home goals**: the next milestone, tier, ultimate and lab slot, with how
+  much is left.
+- **Missions**: three daily and three weekly, paying gems and stones.
+- **Weekly challenge** (from tier 3): the frontier tier with two modifiers
+  that change each Monday, paying stones by the wave reached.
+- **Seasons**: four weeks; waves played unlock two tower colours and a crest.
+- **Card collections**: bonuses for raising whole rarities of cards; maxed
+  workshop stats can be refined a further 1% at a time.
+- **Advice**: a "best value" badge on the upgrade that adds the most per coin
+  or cash, and Auto Upgrade (a lab) that spends run cash by a chosen split.
 - **Stats panel** (the bars icon, at home and in battle): every tower number
   with the upgrade level it starts from, each lab, card, module and perk that
   multiplies or adds to it, and the total; expected DPS, effective health and
   what an enemy hit costs; and every enemy type at any wave and tier.
-- **Idle coins** while away, daily gems, milestones, save export and import.
+- **Idle coins** while away (from the average of the last five runs), daily
+  gems, milestones, a best-wave-per-day chart, save export and import.
   Saves from earlier versions keep working (`tests/fixtures/save-v1.json`).
 
 Gems come from daily visits, milestones, bosses and a floating gem during runs.
@@ -45,6 +58,9 @@ Pages serves the repository root as it is.
 - `js/data.js` every number in the game
 - `js/game.js` the run simulation (no DOM, also runs in Node)
 - `js/state.js` the save, workshop, labs, cards, modules, idle earnings
+- `js/meta.js` missions, the weekly challenge, seasons, collections, refining,
+  which tabs are open
+- `js/advisor.js` the value model behind the badge and Auto Upgrade
 - `js/stats.js` folds everything into the stats a run uses, and records how
   each one was built; `js/statspanel.js` shows that record
 - `js/render.js` canvas drawing; `js/main.js` and `js/screens.js` the interface
