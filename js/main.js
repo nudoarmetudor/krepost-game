@@ -4,12 +4,13 @@ import { app, commit } from './app.js';
 import { h, icon, cur, toast, modal, modalOpen } from './dom.js';
 import { fmt, fmtInt, fmtClock, fmtTime, setNotation } from './format.js';
 import { play, unlockAudio, setSound } from './audio.js';
-import { STATS, CATS, WORLD, PERK_BY_ID, UWS, TIERS } from './data.js';
+import { STATS, STAT_BY_ID, CATS, WORLD, PERK_BY_ID, UWS, TIERS } from './data.js';
 import { load, applyOffline, claimDaily, finishRun, isUnlocked } from './state.js';
 import { ensureMissions, ensureChallenge, ensureSeason, missionsWaiting } from './meta.js';
 import { Run } from './game.js';
 import { Renderer } from './render.js';
 import { openStats } from './statspanel.js';
+import { runAdvice } from './advisor.js';
 import {
   renderTopbar, renderTabs, homeScreen, workshopScreen, labsScreen, cardsScreen, modulesScreen,
   ultimatesScreen, moreScreen, howTo, UW_COLOR,
@@ -343,13 +344,24 @@ function battleScreen() {
   const panel = h('div', { class: 'panel' }, tabsBox, grid);
 
   let buttons = [];
+  let catSeg = null;
+  // Auto Upgrade, once researched: on and off during the run
+  const autoBtn = h('button', { class: 'btn small auto-btn', 'aria-label': 'Auto upgrade', onclick: () => {
+    app.save.settings.autoBuy = !app.save.settings.autoBuy;
+    run.recompute();
+    play('click');
+    commit();
+    updatePanel();
+  } });
   const buildPanel = () => {
     const tab = app.ui.runTab;
     const mult = app.ui.runMult;
-    tabsBox.replaceChildren(
-      segEl(CATS.map((c) => [c.id, c.name]), tab, (v) => { app.ui.runTab = v; buildPanel(); }),
+    catSeg = segEl(CATS.map((c) => [c.id, c.name]), tab, (v) => { app.ui.runTab = v; buildPanel(); });
+    tabsBox.replaceChildren(...[
+      catSeg,
       segEl([[1, '×1'], [10, '×10'], ['max', 'Max']], mult, (v) => { app.ui.runMult = v; buildPanel(); }, { flex: '0 0 auto' }),
-    );
+      app.save.labs.autoBuy ? autoBtn : null,
+    ].filter(Boolean));
     buttons = [];
     grid.replaceChildren();
     for (const stat of STATS.filter((x) => x.cat === tab && isUnlocked(app.save, x))) {
@@ -368,7 +380,7 @@ function battleScreen() {
         } else play('nope');
         return bought;
       };
-      const b = h('button', { class: 'upg ' + stat.cat }, h('div', { class: 'in' }, n, v, c), l);
+      const b = h('button', { class: 'upg ' + stat.cat }, h('div', { class: 'in' }, n, v, c), l, h('span', { class: 'bv' }, 'Best value'));
       holdToRepeat(b, buyOnce);
       buttons.push({ stat, b, v, c, l });
       grid.append(b);
@@ -378,6 +390,13 @@ function battleScreen() {
 
   const updatePanel = () => {
     const mult = app.ui.runMult;
+    // the best value per cash, by the advisor's model: badge it, and dot the
+    // category tab that holds it
+    const best = runAdvice(run).best;
+    if (catSeg) CATS.forEach((cat, i) => catSeg.children[i].classList.toggle('hasbest', best.some((id) => STAT_BY_ID[id].cat === cat.id)));
+    autoBtn.textContent = 'Auto';
+    autoBtn.setAttribute('aria-pressed', app.save.settings.autoBuy ? 'true' : 'false');
+    autoBtn.classList.toggle('primary', !!app.save.settings.autoBuy);
     for (const { stat, b, v, c, l } of buttons) {
       const lvl = Math.min(stat.max, (app.save.ws[stat.id] || 0) + run.runLevel(stat.id));
       const fmtV = (x) => (stat.f === 'big' ? fmt(x) : stat.f(x));
@@ -397,7 +416,7 @@ function battleScreen() {
       }
       c.textContent = '$' + fmt(cost) + (n > 1 ? ` ×${n}` : '');
       const can = run.cash >= cost;
-      b.className = 'upg ' + stat.cat + (can ? '' : ' no');
+      b.className = 'upg ' + stat.cat + (can ? '' : ' no') + (best.includes(stat.id) ? ' best' : '');
       b.disabled = false;
     }
   };

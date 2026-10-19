@@ -215,6 +215,7 @@ export const LABS = [
   { id: 'perkFreq', name: 'Perk Frequency', desc: 'A perk every fewer waves', per: 0.5, max: 10, time: [60, 1.35], cost: [800, 1.6], f: (x) => '-' + x + ' waves' },
   { id: 'perkChoices', name: 'Perk Choices', desc: 'One more perk to choose from', per: 1, max: 2, time: [240, 3], cost: [5000, 5], f: (x) => '+' + x },
   { id: 'autoPerk', name: 'Auto Perk', desc: 'Picks perks for you, in your priority order', per: 1, max: 1, time: [180, 1], cost: [3000, 1], f: (x) => (x ? 'on' : 'off') },
+  { id: 'autoBuy', name: 'Auto Upgrade', desc: 'Spends cash during a run for you, split between Attack, Defense and Utility as you choose', per: 1, max: 1, time: [360, 1], cost: [8000, 1], f: (x) => (x ? 'on' : 'off'), requires: 'autoPerk' },
   { id: 'uwCooldown', name: 'Ultimate Cooldown', desc: 'Ultimate weapons recharge faster', per: 0.015, max: 25, time: [45, 1.2], cost: [600, 1.32], f: pct },
   { id: 'idleRate', name: 'Idle Earnings', desc: 'Coins earned while you are away', per: 0.03, max: 15, time: [30, 1.25], cost: [400, 1.4], f: pct },
   { id: 'idleCap', name: 'Idle Time Cap', desc: 'Longer away time counts towards coins', per: 1, max: 12, time: [30, 1.25], cost: [400, 1.4], f: (x) => '+' + x + 'h' },

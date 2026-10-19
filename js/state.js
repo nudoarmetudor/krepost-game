@@ -44,7 +44,10 @@ export function newSave(now = Date.now()) {
     },
     lastSeen: now,
     lastDaily: '',
-    settings: { sound: true, vibrate: true, notation: 'letters', dmgNumbers: true, confirmEnd: true, speed: 2, theme: 'ember' },
+    settings: {
+      sound: true, vibrate: true, notation: 'letters', dmgNumbers: true, confirmEnd: true, speed: 2, theme: 'ember',
+      autoBuy: true, autoSplit: { attack: 50, defense: 25, utility: 25 },
+    },
     run: null,
     seenIntro: false,
     seenTabs: {},
@@ -175,6 +178,11 @@ export function labSpeedBonus(save) {
   return labValue(save, 'labSpeed');
 }
 
+// Some research needs another finished first.
+export function labReady(save, lab) {
+  return !lab.requires || labLevel(save, lab.requires) > 0;
+}
+
 export function researchFor(save, id) {
   return save.research.find((r) => r.lab === id);
 }
@@ -183,6 +191,7 @@ export function startResearch(save, id, now = Date.now()) {
   const lab = LAB_BY_ID[id];
   const lvl = labLevel(save, id);
   if (lvl >= lab.max || researchFor(save, id)) return false;
+  if (!labReady(save, lab)) return false;
   if (save.research.length >= save.labSlots) return false;
   const cost = labCost(lab, lvl);
   if (save.coins < cost) return false;

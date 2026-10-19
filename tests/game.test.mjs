@@ -463,3 +463,62 @@ test('Home recommends the tier that paid the most coins per minute lately', () =
 test('a new player starts at double speed', () => {
   assert.equal(newSave(0).settings.speed, 2);
 });
+
+// ---------------------------------------------------------------------------
+// The advisor (best value per cash or coin) and Auto Upgrade.
+
+import { rankRun, rankWorkshop, runAdvice } from '../js/advisor.js';
+import { startResearch as startLab, labReady } from '../js/state.js';
+import { LAB_BY_ID } from '../js/data.js';
+
+test('the advisor ranks Damage above Range on a fresh tier-1 run, and badges what it ranks first', () => {
+  const run = new Run(newSave(0), { tier: 1, rand: seeded(3) });
+  const list = rankRun(run).list;
+  const at = (id) => list.findIndex((x) => x.id === id);
+  assert.ok(at('damage') >= 0 && at('damage') < at('range'));
+  assert.equal(runAdvice(run).best[0], list[0].id);
+  // cached until something changes
+  assert.equal(runAdvice(run), runAdvice(run));
+  const ws = rankWorkshop(newSave(0)).list;
+  assert.ok(ws.findIndex((x) => x.id === 'damage') < ws.findIndex((x) => x.id === 'range'));
+  assert.ok(ws.every((x) => x.value >= 0));
+});
+
+test('Auto Upgrade needs Auto Perk first, then research, then the switch', () => {
+  const s = newSave(0);
+  s.coins = 1e9;
+  assert.equal(labReady(s, LAB_BY_ID.autoBuy), false);
+  assert.equal(startLab(s, 'autoBuy', 0), false);
+  s.labs.autoPerk = 1;
+  assert.ok(startLab(s, 'autoBuy', 0));
+  const off = new Run(s, { tier: 1, rand: seeded(1) });
+  assert.equal(off.S.autoBuy, false);
+  s.research = [];
+  s.labs.autoBuy = 1;
+  s.settings.autoBuy = false;
+  const run = new Run(s, { tier: 1, rand: seeded(1) });
+  assert.equal(run.S.autoBuy, false);
+  run.cash = 1000;
+  for (let i = 0; i < 300; i++) run.step(1 / 30);
+  assert.equal(Object.keys(run.lv).length, 0);
+});
+
+test('Auto Upgrade follows the split and never spends cash it does not have', () => {
+  const s = newSave(0);
+  s.labs.autoPerk = 1;
+  s.labs.autoBuy = 1;
+  s.settings.autoSplit = { attack: 60, defense: 40, utility: 0 };
+  const run = new Run(s, { tier: 1, rand: seeded(5) });
+  assert.equal(run.S.autoBuy, true);
+  for (let i = 0; i < 30 * 400 && !run.over; i++) {
+    run.step(1 / 30);
+    assert.ok(run.cash >= 0);
+  }
+  const total = run.spent.attack + run.spent.defense + run.spent.utility;
+  assert.ok(total > 1000, 'spent ' + total);
+  assert.equal(run.spent.utility, 0);
+  assert.ok(Math.abs(run.spent.attack / total - 0.6) < 0.1, JSON.stringify(run.spent));
+  // the split survives leaving and coming back
+  const back = new Run(s, { tier: 1, snapshot: run.snapshot() });
+  assert.deepEqual(back.spent, run.spent);
+});

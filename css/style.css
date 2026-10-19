@@ -208,6 +208,18 @@ h3 { margin: 0; font-size: 16px; }
 .upg.attack { border-left: 3px solid var(--attack); }
 .upg.defense { border-left: 3px solid var(--defense); }
 .upg.utility { border-left: 3px solid var(--utility); }
+/* the advisor's pick: best value per cash or coin */
+.upg .bv, .item .bv { display: none; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #1a1300; background: var(--accent); border-radius: 6px; padding: 1px 5px; }
+.upg .bv { position: absolute; right: 7px; bottom: 7px; }
+.item.best { border-color: var(--accent); }
+.upg.best { border-top-color: var(--accent); border-right-color: var(--accent); border-bottom-color: var(--accent); }
+.upg.best .bv, .item.best .bv { display: inline-block; }
+.item .bv { margin-left: 6px; vertical-align: 1px; }
+.seg button.hasbest { position: relative; }
+.seg button.hasbest::after { content: ''; position: absolute; top: 4px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.auto-btn { flex: 0 0 auto; padding-inline: 9px; }
+.auto-btn:not(.primary) { color: var(--muted); text-decoration: line-through; }
+.panel .ptabs:has(.auto-btn) .seg button { padding-inline: 6px; }
 
 @media (min-aspect-ratio: 5/4) and (min-width: 700px) {
   .battle { display: grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr; }
