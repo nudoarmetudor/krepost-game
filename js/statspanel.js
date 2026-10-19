@@ -97,7 +97,7 @@ function towerTab(save, run, S) {
       ['Fortitude', `at most ${fmt(S.maxHp * S.fortitude)} raw damage a second (${fmtPct(S.fortitude, 0)} of health)`],
       ['Overrun, the walls hold', holdText(S)],
     ]),
-    h('p', { class: 'muted small' }, 'Expected DPS counts critical hits and multishot on a target in range. Fortitude: however many enemies reach the walls, they lose at most that much raw damage a second, before Defense; while more keeps coming, strain raises the limit by ' + fmtPct(FORTITUDE.strain, 0) + ' a second. Health, Regen, Lifesteal and Defense % decide how long you hold. Tap any line below to see what it is made of.'));
+    h('p', { class: 'muted small' }, 'Expected DPS counts critical hits and multishot on a target in range. Fortitude: however many enemies reach the walls, they take at most that much raw damage a second; while more keeps coming, the limit rises by ' + fmtPct(FORTITUDE.strain, 0) + ' a second, and Regen and Lifesteal make up at most ' + fmtPct(FORTITUDE.mend, 0) + ' of what gets through. Defense %, Regen and Lifesteal decide how long you hold. Tap any line below to see what it is made of.'));
 
   const effects = run ? liveEffects(run, S) : [];
   const effectsCard = effects.length
@@ -124,11 +124,12 @@ function towerTab(save, run, S) {
 
 // How long the walls last once overrun: Fortitude lets in at most
 // cap × (1 + strain·t) raw damage a second, Defense % takes its share, Regen
-// heals. Lifesteal is left out: it depends on hitting something.
+// heals up to `mend` of that. Lifesteal is left out: it depends on hitting
+// something.
 export function holdSeconds(S) {
   const F = S.fortitude * (1 - S.defPct);
   const a = (F * FORTITUDE.strain) / 2;
-  const b = F - S.regen / S.maxHp;
+  const b = F - Math.min(S.regen / S.maxHp, FORTITUDE.mend * F);
   return (-b + Math.sqrt(b * b + 4 * a)) / (2 * a);
 }
 

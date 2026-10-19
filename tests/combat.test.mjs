@@ -75,6 +75,20 @@ test('an overrun tower still falls, and Defense % makes it hold longer', () => {
   assert.ok(armoured > bare * 2, `${bare}s bare, ${armoured}s with 75% defense`);
 });
 
+test('under strain, Regen cannot outlast Fortitude on walls with little health', () => {
+  const run = emptyRun();
+  run.S.defPct = 0;
+  run.S.regen = run.S.maxHp; // a full wall a second, four times the allowance
+  let t = 0;
+  while (!run.over && t < 600) {
+    run.hitTower(run.S.maxHp * 5, null);
+    run.step(1 / 20);
+    t += 1 / 20;
+  }
+  assert.ok(run.over, 'Regen alone held the walls');
+  assert.ok(t < 2 / (FORTITUDE.cap * (1 - FORTITUDE.mend)), `held ${t}s`);
+});
+
 test('Lancers stand farther out on higher tiers, past the base range from tier 5', () => {
   const def = ENEMIES.ranged;
   assert.equal(standoffAt(def, 1), 24);

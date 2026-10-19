@@ -11,13 +11,15 @@ export const WORLD = {
 };
 
 // Fortitude: the walls take at most `cap` of their max health in raw damage per
-// second (Defense Absolute and Defense % then apply to what gets through). While
-// more is coming than the cap lets in, strain builds and the cap rises by
-// `strain` for every second of it, so a tower that is overrun still falls; it
-// relaxes at `relax` seconds per second once the pressure is off. Health,
-// Regen, Lifesteal and Defense % decide how long the walls hold. Lifesteal
-// heals at most `lifesteal` × its own percentage of max health a second.
-export const FORTITUDE = { cap: 0.25, strain: 0.02, relax: 0.5, lifesteal: 1 };
+// second. Defense Absolute comes off each hit before the cap counts it, Defense %
+// off what the cap lets through. While more is coming than the cap lets in,
+// strain builds and the cap rises by `strain` for every second of it, so a tower
+// that is overrun still falls; it relaxes at `relax` seconds per second once the
+// pressure is off. Under strain, Regen and Lifesteal together make up at most
+// `mend` of what gets through, so walls with little health and a lot of Regen
+// cannot outlast the cap. Lifesteal heals at most `lifesteal` × its own
+// percentage of max health a second.
+export const FORTITUDE = { cap: 0.25, strain: 0.03, relax: 0.5, mend: 0.5, lifesteal: 0.25 };
 
 // ---------------------------------------------------------------- upgrades
 // One definition per tower stat. The effective level of a stat during a run

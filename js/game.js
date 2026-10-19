@@ -697,14 +697,17 @@ export class Run {
 
   updateTower(dt) {
     const S = this.S;
-    this.hp = Math.min(S.maxHp, this.hp + S.regen * dt);
     // fortitude: refill the per-second allowance; strain builds while hits overflow it
     if (this.strained) this.strain += dt;
     else this.strain = Math.max(0, this.strain - FORTITUDE.relax * dt);
     this.strained = false;
     const cap = this.fortCap();
     this.fortBucket = Math.min(cap, this.fortBucket + cap * dt);
-    const ls = S.maxHp * S.lifesteal * FORTITUDE.lifesteal;
+    // under strain, repairs make up at most `mend` of what gets through
+    const mend = this.strain > 0 ? FORTITUDE.mend * cap * (1 - S.defPct) : Infinity;
+    const regen = Math.min(S.regen, mend);
+    this.hp = Math.min(S.maxHp, this.hp + regen * dt);
+    const ls = Math.min(S.maxHp * S.lifesteal * FORTITUDE.lifesteal, mend - regen);
     this.lsBucket = Math.min(ls, this.lsBucket + ls * dt);
     if (this.demonT > 0) this.demonT = Math.max(0, this.demonT - dt);
     if (this.towerFlash > 0) this.towerFlash -= dt;
