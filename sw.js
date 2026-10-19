@@ -5,7 +5,7 @@ const CACHE = 'krepost-v3';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/main.js', 'js/app.js', 'js/audio.js', 'js/data.js', 'js/dom.js', 'js/format.js',
-  'js/game.js', 'js/render.js', 'js/screens.js', 'js/state.js', 'js/stats.js', 'js/statspanel.js',
+  'js/game.js', 'js/render.js', 'js/screens.js', 'js/state.js', 'js/stats.js', 'js/statspanel.js', 'js/advisor.js',
   'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 

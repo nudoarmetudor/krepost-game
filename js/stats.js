@@ -222,6 +222,7 @@ export function computeStats(save, run) {
   S.perkInterval = Math.max(4, Math.round(10 - lab('perkFreq')));
   S.perkChoices = 3 + lab('perkChoices');
   S.autoPerk = lab('autoPerk') > 0 && save.autoPerk;
+  S.autoBuy = lab('autoBuy') > 0 && !!save.settings.autoBuy;
   S.startCash = lab('startCash');
   S.shardMult = 1 + lab('shards');
   // not enumerable, so S still copies and compares as plain numbers

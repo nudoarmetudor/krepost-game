@@ -6,7 +6,7 @@ import { h, icon, cur, toast, modal } from './dom.js';
 import { fmt, fmtInt, fmtTime, fmtPct } from './format.js';
 import { play } from './audio.js';
 import {
-  STATS, CATS, LABS, labTimeSec, labCost, LAB_SLOT_COSTS, CARDS, CARD_BY_ID, cardStars, CARD_STAR_COPIES,
+  STATS, CATS, LABS, LAB_BY_ID, labTimeSec, labCost, LAB_SLOT_COSTS, CARDS, CARD_BY_ID, cardStars, CARD_STAR_COPIES,
   CARD_PACK, CARD_SLOT_COSTS, RARITY, UWS, uwParamCost, PERK_BY_ID, MODULE_SLOTS, MODULE_SLOT_BY_ID,
   MODULE_RARITIES, MODULE_MAX_LEVEL, MODULE_PACK_COST, MODULE_MERGE_COUNT, moduleLevelCost, TIERS,
   MILESTONES, wsCost,
@@ -15,10 +15,11 @@ import {
   wsLevel, isUnlocked, workshopCost, buyWorkshop, unlockStat, wsDiscount, labLevel, labSpeedBonus, researchFor,
   startResearch, rushCost, rushResearch, buyLabSlot, openCards, toggleCard, buyCardSlot, uwState, unlockUw,
   upgradeUw, buyModulePack, equipModule, levelModule, mergeCandidates, mergeModule, dismantleModule,
-  moduleMainValue, moduleEffectValue, idleRate, idleCps, idleCapSec, tierReward, uwUnlockCost, exportSave, importSave, newSave, SAVE_KEY,
+  labReady, moduleMainValue, moduleEffectValue, idleRate, idleCps, idleCapSec, tierReward, uwUnlockCost, exportSave, importSave, newSave, SAVE_KEY,
 } from './state.js';
 import { setNotation } from './format.js';
 import { setSound } from './audio.js';
+import { rankWorkshop, bestIds } from './advisor.js';
 
 const TABS = [
   ['home', 'Home', 'home'],
@@ -56,6 +57,11 @@ export function renderTabs() {
 function costBtn(curName, cost, can, onclick, label) {
   return h('button', { class: 'btn small buy' + (can ? ' primary' : ''), disabled: !can, onclick },
     label || null, curName ? cur(curName, fmt(cost)) : null);
+}
+
+function markBest(el, flags) {
+  flags.forEach((f, i) => el.children[i].classList.toggle('hasbest', f));
+  return el;
 }
 
 function seg(options, value, onpick) {
@@ -150,6 +156,9 @@ export function workshopScreen() {
   const tab = app.ui.wsTab;
   const mult = app.ui.wsMult;
   const list = h('div', { class: 'list' });
+  // best value per coin for the tier being played, by the advisor's model
+  const best = bestIds(rankWorkshop(s));
+  const bestCats = new Set(best.map((id) => STATS.find((x) => x.id === id).cat));
 
   for (const stat of STATS.filter((x) => x.cat === tab)) {
     const lvl = wsLevel(s, stat.id);
@@ -181,9 +190,9 @@ export function workshopScreen() {
       }
     }
     const can = !maxed && s.coins >= total;
-    list.append(h('div', { class: 'item' },
+    list.append(h('div', { class: 'item' + (best.includes(stat.id) ? ' best' : '') },
       h('div', { class: 'grow' },
-        h('div', { class: 'row' }, h('span', { class: 'name' }, stat.name), h('span', { class: 'lv' }, `Lv ${lvl}${stat.max < 6000 ? '/' + stat.max : ''}`)),
+        h('div', { class: 'row' }, h('span', { class: 'name' }, stat.name), h('span', { class: 'lv' }, `Lv ${lvl}${stat.max < 6000 ? '/' + stat.max : ''}`), h('span', { class: 'bv' }, 'Best value')),
         h('div', { class: 'sub val' }, maxed ? fmtV(stat.v(lvl)) + ' · max' : `${fmtV(stat.v(lvl))} → ${fmtV(stat.v(lvl + n))}`),
       ),
       maxed ? h('span', { class: 'tag' }, 'MAX') : costBtn('coin', total, can, () => {
@@ -196,8 +205,8 @@ export function workshopScreen() {
 
   return h('div', { class: 'page' },
     h('div', { class: 'row spread' }, h('h2', {}, 'Workshop'), cur('coin', fmt(s.coins))),
-    h('p', { class: 'muted small', style: { margin: 0 } }, 'Permanent upgrades. Every run starts from these levels.'),
-    seg(CATS.map((c) => [c.id, c.name]), tab, (v) => { app.ui.wsTab = v; app.refresh(); }),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Permanent upgrades. Every run starts from these levels. "Best value" marks what adds the most per coin on this tier.'),
+    markBest(seg(CATS.map((c) => [c.id, c.name]), tab, (v) => { app.ui.wsTab = v; app.refresh(); }), CATS.map((c) => bestCats.has(c.id))),
     seg([[1, '×1'], [10, '×10'], ['max', 'Max']], mult, (v) => { app.ui.wsMult = v; app.refresh(); }),
     list,
   );
@@ -256,6 +265,7 @@ export function labsScreen() {
         h('div', { class: 'sub val' }, maxed ? lab.f(lvl * lab.per) + ' · max' : `${lab.f(+(lvl * lab.per).toFixed(4))} → ${lab.f(+((lvl + 1) * lab.per).toFixed(4))} · ${fmtTime(time)}`),
       ),
       maxed ? h('span', { class: 'tag' }, 'MAX') : r ? h('span', { class: 'tag' }, 'Running')
+        : !labReady(s, lab) ? h('span', { class: 'tag' }, `Needs ${LAB_BY_ID[lab.requires].name}`)
         : costBtn('coin', cost, !busy && s.coins >= cost, () => {
           if (startResearch(s, lab.id, Date.now())) { play('buy'); commit(); app.refresh(); }
         }),
@@ -539,6 +549,7 @@ export function moreScreen() {
           s.autoPerk = !s.autoPerk; commit(); app.refresh();
         } })) : null,
       order),
+    labLevel(s, 'autoBuy') ? autoSplitCard() : null,
     h('div', { class: 'card' },
       h('h3', {}, 'Save'),
       h('p', { class: 'muted small' }, 'Progress is saved on this device. Copy the code to move it to another device or keep a backup.'),
@@ -549,6 +560,31 @@ export function moreScreen() {
     ),
     h('div', { class: 'card' }, h('h3', {}, 'How to play'), howTo()),
     h('p', { class: 'muted small', style: { textAlign: 'center' } }, 'Krepost · no ads, no purchases, no tracking · © 2026 Tudor Lapp · MIT licence'),
+  );
+}
+
+// Auto Upgrade: how a run's cash is shared between the three categories.
+function autoSplitCard() {
+  const s = app.save;
+  const sp = s.settings.autoSplit;
+  const total = CATS.reduce((a, c) => a + (sp[c.id] || 0), 0) || 1;
+  const step = (id, d) => {
+    sp[id] = Math.max(0, Math.min(100, (sp[id] || 0) + d));
+    commit();
+    app.refresh();
+  };
+  return h('div', { class: 'card' },
+    h('h3', {}, 'Auto Upgrade'),
+    h('p', { class: 'muted small' }, 'During a run, cash goes to each category in this proportion; inside a category, to the best value per cash.'),
+    h('div', { class: 'toggle' }, h('span', {}, 'Auto Upgrade on'),
+      h('button', { class: 'switch' + (s.settings.autoBuy ? ' on' : ''), 'aria-label': 'Auto Upgrade', onclick: () => {
+        s.settings.autoBuy = !s.settings.autoBuy; commit(); app.refresh();
+      } })),
+    CATS.map((c) => h('div', { class: 'item' },
+      h('span', { class: 'grow' }, h('b', { style: { color: c.color } }, c.name)),
+      h('b', { class: 'val', style: { minWidth: '44px', textAlign: 'right' } }, Math.round(((sp[c.id] || 0) / total) * 100) + '%'),
+      h('button', { class: 'btn small', disabled: !sp[c.id], onclick: () => step(c.id, -10), 'aria-label': `Less ${c.name}` }, '−'),
+      h('button', { class: 'btn small', disabled: sp[c.id] >= 100, onclick: () => step(c.id, 10), 'aria-label': `More ${c.name}` }, '+'))),
   );
 }
 

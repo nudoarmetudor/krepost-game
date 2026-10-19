@@ -7,6 +7,7 @@ import {
 } from './data.js';
 import { computeStats } from './stats.js';
 import { isUnlocked, rollModule } from './state.js';
+import { runAdvice } from './advisor.js';
 
 const TAU = Math.PI * 2;
 const MAX_ENEMIES = 450;
@@ -71,6 +72,8 @@ export class Run {
     this.fireT = 0;
     this.shake = 0;
     this.damageBySource = {};
+    this.spent = { attack: 0, defense: 0, utility: 0 };
+    this.autoAcc = 0;
 
     if (snapshot) this.restore(snapshot);
     else {
@@ -91,7 +94,7 @@ export class Run {
       lv: { ...this.lv }, perks: { ...this.perks }, perkCounter: this.perkCounter, pendingPerks: this.pendingPerks,
       simTime: this.simTime, secondWindUsed: this.secondWindUsed, demonUsed: this.demonUsed,
       gemsFound: this.gemsFound, shardsFound: this.shardsFound, gemAcc: this.gemAcc,
-      damageBySource: { ...this.damageBySource },
+      damageBySource: { ...this.damageBySource }, spent: { ...this.spent },
     };
   }
 
@@ -105,6 +108,7 @@ export class Run {
     });
     this.lv = { ...(s.lv || {}) };
     this.perks = { ...(s.perks || {}) };
+    this.spent = { attack: 0, defense: 0, utility: 0, ...(s.spent || {}) };
     this.bossSpawned = this.wave % 10 === 0 ? this.wave : 0;
     this.recompute();
     this.hp = Math.max(1, (s.hpFrac || 1) * this.S.maxHp);
@@ -167,6 +171,7 @@ export class Run {
       if (cost > this.cash) break;
       if (this.rand() < freeChance) free++;
       else this.cash -= cost;
+      this.spent[stat.cat] += cost;
       this.lv[id] = this.runLevel(id) + 1;
       bought++;
     }
@@ -175,6 +180,43 @@ export class Run {
       this.sfx.push('buy');
     }
     return { bought, free };
+  }
+
+  // Spend cash the way the player split it: the category furthest below its
+  // share goes next, and inside it the upgrade with the best value per cash.
+  // Waits (saves up) when that upgrade costs more than the cash on hand. The
+  // ranking is taken once per call; a level bought scales its value by the
+  // price step, which keeps a call cheap on a phone.
+  autoBuyStep() {
+    const split = this.save.settings.autoSplit || {};
+    const cats = ['attack', 'defense', 'utility'].filter((c) => (split[c] || 0) > 0);
+    const want = cats.reduce((a, c) => a + split[c], 0);
+    if (!want) return 0;
+    const list = runAdvice(this).ranked.list.filter((x) => x.value > 0).map((x) => ({ ...x }));
+    let bought = 0;
+    for (let guard = 0; guard < 60; guard++) {
+      const total = this.spent.attack + this.spent.defense + this.spent.utility;
+      let pick = null;
+      let gap = -Infinity;
+      for (const c of cats) {
+        if (!list.some((x) => x.cat === c)) continue;
+        const g = split[c] / want - (total ? this.spent[c] / total : 0);
+        if (g > gap) { gap = g; pick = c; }
+      }
+      if (!pick) break;
+      let top = null;
+      for (const x of list) if (x.cat === pick && (!top || x.value > top.value)) top = x;
+      if (top.cost > this.cash) break;
+      if (!this.buy(top.id, 1).bought) break;
+      bought++;
+      if (!this.canUpgrade(top.id)) list.splice(list.indexOf(top), 1);
+      else {
+        const next = this.upgradeCost(top.id);
+        top.value *= top.cost / next;
+        top.cost = next;
+      }
+    }
+    return bought;
   }
 
   // -------------------------------------------------------------- perks
@@ -285,6 +327,15 @@ export class Run {
     this.updateFx(dt);
 
     if (this.pendingPerks > 0 && S.autoPerk) this.autoPickPerk();
+
+    // auto upgrade: a few times a second, not every tick
+    if (S.autoBuy) {
+      this.autoAcc += dt;
+      if (this.autoAcc >= 0.5) {
+        this.autoAcc = 0;
+        this.autoBuyStep();
+      }
+    }
 
     // floating gem every few minutes of play
     this.gemAcc += dt;
