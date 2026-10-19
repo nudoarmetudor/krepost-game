@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { fmt, fmtTime } from '../js/format.js';
-import { STATS, UWS, CARDS, LABS, MODULE_SLOTS, CARD_STAR_COPIES } from '../js/data.js';
+import { STATS, UWS, CARDS, LABS, MODULE_SLOTS, CARD_STAR_COPIES, ENEMIES, TIERS, enemyHpAt, enemyDmgAt, enemyDmgScale } from '../js/data.js';
 import {
   newSave, migrate, exportSave, importSave, offlineEarnings, applyOffline, startResearch, tickLabs,
   openCards, toggleCard, addModule, mergeModule, claimMilestones, finishRun, buyWorkshop, unlockStat,
-  unlockUw, upgradeUw, idleCapSec, rushResearch,
+  unlockUw, upgradeUw, idleCapSec, rushResearch, uwUnlockCost,
 } from '../js/state.js';
 import { computeStats } from '../js/stats.js';
 import { Run } from '../js/game.js';
@@ -62,12 +62,12 @@ test('export and import round trip', () => {
   assert.throws(() => importSave('hello'));
 });
 
-test('idle coins follow the best run and stop at the cap', () => {
+test('idle coins follow the recent runs and stop at the cap', () => {
   const s = newSave(0);
-  s.stats.bestCoinsPerSec = 2;
+  s.stats.recentCps = [1, 3];
   s.lastSeen = 0;
   const hour = offlineEarnings(s, 3600 * 1000);
-  assert.equal(hour.coins, Math.floor(3600 * 2 * 0.15));
+  assert.equal(hour.coins, Math.floor(3600 * 2 * 0.1));
   const week = offlineEarnings(s, 7 * 86400 * 1000);
   assert.equal(week.counted, idleCapSec(s));
   assert.equal(offlineEarnings(s, 30 * 1000).coins, 0);
@@ -209,7 +209,6 @@ test('in-run upgrades cost cash and respect the max', () => {
 
 import { readFileSync } from 'node:fs';
 import { load, SAVE_KEY } from '../js/state.js';
-import { ENEMIES, enemyHpAt } from '../js/data.js';
 
 const fixture = (name) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -313,4 +312,31 @@ test('Mine Ring mines never pile up past the cap', () => {
   run.spawnAcc = -1e9;
   for (let i = 0; i < 200; i++) run.triggerUw('minering', run.S.uw.minering, run.uw.minering);
   assert.ok(run.mines.length <= 60, `${run.mines.length} mines`);
+});
+
+test('idle income averages the last five runs, and an old save starts from its best run', () => {
+  const old = migrate({ stats: { bestCoinsPerSec: 4 } }, 0);
+  assert.deepEqual(old.stats.recentCps, [4]);
+  const s = newSave(0);
+  for (const c of [10, 1, 1, 1, 1, 1]) finishRun(s, { tier: 1, wave: 5, coins: c * 100, cash: 0, kills: 0, bossKills: 0, simSec: 100, damage: 0 });
+  assert.deepEqual(s.stats.recentCps, [1, 1, 1, 1, 1]);
+  assert.equal(s.stats.bestCoinsPerSec, 10);
+});
+
+test('each ultimate weapon unlocked makes the next one dearer, in any order', () => {
+  const s = newSave(0);
+  s.stones = 10000;
+  assert.equal(uwUnlockCost(s), 5);
+  assert.ok(unlockUw(s, 'venom'));
+  assert.equal(s.stones, 9995);
+  assert.equal(uwUnlockCost(s), 50);
+  assert.ok(unlockUw(s, 'wave'));
+  assert.equal(s.stones, 9945);
+});
+
+test('the first boss of tier 1 has half health and damage, later ones do not', () => {
+  const boss = ENEMIES.boss;
+  assert.ok(Math.abs(enemyHpAt(boss, 10, 1).total * 2 - enemyHpAt(boss, 10, 2).total / TIERS[1].hp) < 1e-9);
+  assert.ok(Math.abs(enemyDmgAt(boss, 20, 1).total - boss.dmg * enemyDmgScale(20, 1)) < 1e-9);
+  assert.ok(Math.abs(enemyDmgAt(boss, 10, 1).total - boss.dmg * enemyDmgScale(10, 1) * 0.5) < 1e-9);
 });

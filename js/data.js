@@ -121,6 +121,7 @@ export function enemyHpAt(def, wave, tier, hpMult = 1) {
     { label: 'Perk: Bounty', op: '×', v: hpMult },
   ];
   if (def.boss) parts.push({ label: 'Boss, +15% every 10 waves', op: '×', v: 1 + Math.floor(wave / 10) * 0.15 });
+  parts.push({ label: 'First boss, gentler', op: '×', v: firstBoss(def, wave, tier) });
   return built(def.hp, parts);
 }
 
@@ -128,7 +129,13 @@ export function enemyDmgAt(def, wave, tier) {
   return built(def.dmg, [
     { label: `Wave ${wave}`, op: '×', v: enemyDmgScale(wave, 1) },
     { label: `Tier ${tier}`, op: '×', v: TIERS[tier - 1].dmg },
+    { label: 'First boss, gentler', op: '×', v: firstBoss(def, wave, tier) },
   ]);
+}
+
+// The very first boss a player meets teaches rather than ends the run.
+export function firstBoss(def, wave, tier) {
+  return def.boss && tier === 1 && wave === 10 ? 0.5 : 1;
 }
 
 // S: the tower's computed stats (cashMult, coinMult, bossCoinMult)
@@ -172,16 +179,19 @@ export function spawnTable(wave, tier) {
 // unlockWave: wave to reach on the previous tier to open this one.
 export const TIERS = [
   { hp: 1, dmg: 1, cash: 1, coins: 1, unlockWave: 0 },
-  { hp: 4, dmg: 3, cash: 1.6, coins: 1.8, unlockWave: 40 },
-  { hp: 16, dmg: 9, cash: 2.5, coins: 2.8, unlockWave: 50 },
-  { hp: 60, dmg: 26, cash: 3.6, coins: 4.2, unlockWave: 60 },
-  { hp: 220, dmg: 75, cash: 5, coins: 6, unlockWave: 70 },
-  { hp: 800, dmg: 210, cash: 7, coins: 8.5, unlockWave: 80 },
-  { hp: 3000, dmg: 600, cash: 10, coins: 12, unlockWave: 90 },
-  { hp: 11000, dmg: 1700, cash: 14, coins: 17, unlockWave: 100 },
-  { hp: 40000, dmg: 4800, cash: 19, coins: 24, unlockWave: 110 },
-  { hp: 150000, dmg: 14000, cash: 26, coins: 34, unlockWave: 120 },
+  { hp: 6, dmg: 4, cash: 1.5, coins: 1.6, unlockWave: 60 },
+  { hp: 36, dmg: 16, cash: 2.2, coins: 2.5, unlockWave: 100 },
+  { hp: 200, dmg: 64, cash: 3.2, coins: 3.8, unlockWave: 140 },
+  { hp: 1100, dmg: 250, cash: 4.5, coins: 5.6, unlockWave: 180 },
+  { hp: 6000, dmg: 1000, cash: 6.3, coins: 8.2, unlockWave: 220 },
+  { hp: 32000, dmg: 4000, cash: 9, coins: 12, unlockWave: 260 },
+  { hp: 170000, dmg: 16000, cash: 12.5, coins: 17.5, unlockWave: 300 },
+  { hp: 900000, dmg: 64000, cash: 17.5, coins: 25, unlockWave: 350 },
+  { hp: 4800000, dmg: 256000, cash: 24, coins: 36, unlockWave: 400 },
 ];
+
+// Milestone gems and stones, and the stones a run pays, grow this much per tier.
+export const TIER_REWARD_STEP = 0.25;
 
 // -------------------------------------------------------------------- labs
 // time: minutes for level n = base * g^n; cost: coins = base * g^n
@@ -274,7 +284,7 @@ export function cardStars(copies) {
 // Each has three upgradeable parameters; cost in stones = base * g^level.
 export const UWS = [
   {
-    id: 'wave', glyph: '◎', name: 'Annihilation Wave', color: '#ff5f7a', unlock: 5,
+    id: 'wave', glyph: '◎', name: 'Annihilation Wave', color: '#ff5f7a',
     desc: 'Rings of force roll out from the tower and crush what they pass.',
     params: [
       { id: 'dmg', name: 'Damage', v: (l) => 8 + 6 * l, max: 30, cost: [3, 1.18], f: (x) => '×' + x + ' damage' },
@@ -283,7 +293,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'arc', glyph: 'ϟ', name: 'Arc Storm', color: '#7fe3ff', unlock: 25,
+    id: 'arc', glyph: 'ϟ', name: 'Arc Storm', color: '#7fe3ff',
     desc: 'Shots can call lightning that leaps between enemies.',
     params: [
       { id: 'chance', name: 'Chance', v: (l) => 0.03 + 0.01 * l, max: 22, cost: [4, 1.2], f: pct },
@@ -292,7 +302,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'missiles', glyph: '➶', name: 'Seeker Missiles', color: '#ffb547', unlock: 50,
+    id: 'missiles', glyph: '➶', name: 'Seeker Missiles', color: '#ffb547',
     desc: 'A volley of homing missiles that explode on impact.',
     params: [
       { id: 'dmg', name: 'Damage', v: (l) => 6 + 4 * l, max: 30, cost: [3, 1.18], f: (x) => '×' + x },
@@ -301,7 +311,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'singularity', glyph: '◉', name: 'Singularity', color: '#a98bff', unlock: 100,
+    id: 'singularity', glyph: '◉', name: 'Singularity', color: '#a98bff',
     desc: 'Tears open a void that pulls enemies in and erases them.',
     params: [
       { id: 'size', name: 'Size', v: (l) => 5 + 0.5 * l, max: 16, cost: [6, 1.3], f: meters },
@@ -310,7 +320,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'midas', glyph: '¢', name: 'Midas Keep', color: '#ffd84d', unlock: 150,
+    id: 'midas', glyph: '¢', name: 'Midas Keep', color: '#ffd84d',
     desc: 'For a while, every kill pays out much more cash and coins.',
     params: [
       { id: 'bonus', name: 'Bonus', v: (l) => 1.5 + 0.25 * l, max: 20, cost: [5, 1.25], f: (x) => '×' + x },
@@ -319,7 +329,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'searchlight', glyph: '✷', name: 'Searchlight', color: '#fff3a8', unlock: 200,
+    id: 'searchlight', glyph: '✷', name: 'Searchlight', color: '#fff3a8',
     desc: 'A sweeping beam; enemies caught in it take extra damage.',
     params: [
       { id: 'bonus', name: 'Damage Bonus', v: (l) => 1.5 + 0.3 * l, max: 30, cost: [4, 1.2], f: (x) => '×' + x.toFixed(1) },
@@ -328,7 +338,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'timefield', glyph: '⌛', name: 'Time Field', color: '#66ffd1', unlock: 300,
+    id: 'timefield', glyph: '⌛', name: 'Time Field', color: '#66ffd1',
     desc: 'Everything inside the field crawls.',
     params: [
       { id: 'slow', name: 'Slow', v: (l) => 0.35 + 0.025 * l, max: 20, cost: [4, 1.22], f: pct },
@@ -337,7 +347,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'minering', glyph: '✹', name: 'Mine Ring', color: '#ff9b5e', unlock: 400,
+    id: 'minering', glyph: '✹', name: 'Mine Ring', color: '#ff9b5e',
     desc: 'Plants a ring of heavy mines close to the walls.',
     params: [
       { id: 'dmg', name: 'Damage', v: (l) => 20 + 10 * l, max: 30, cost: [3, 1.18], f: (x) => '×' + x },
@@ -346,7 +356,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'venom', glyph: '☠', name: 'Venom Marsh', color: '#9dff5e', unlock: 500,
+    id: 'venom', glyph: '☠', name: 'Venom Marsh', color: '#9dff5e',
     desc: 'Kills can leave a pool that eats a share of enemy health every second.',
     params: [
       { id: 'chance', name: 'Chance', v: (l) => 0.05 + 0.01 * l, max: 20, cost: [4, 1.22], f: pct },
@@ -355,6 +365,9 @@ export const UWS = [
     ],
   },
 ];
+
+// Stones to unlock the n-th ultimate weapon, whichever it is: the player picks the order.
+export const UW_UNLOCK_COSTS = [5, 50, 150, 300, 500, 800, 1200, 1700, 2300];
 
 export const UW_BY_ID = Object.fromEntries(UWS.map((u) => [u.id, u]));
 
@@ -459,5 +472,6 @@ export const DAILY_GEMS = 10;
 export const GEM_DROP_EVERY = 600; // seconds of run time between floating gems
 export const BOSS_GEM_CHANCE = 0.06;
 export const BOSS_MODULE_CHANCE = 0.03;
-export const OFFLINE_BASE_RATE = 0.15; // share of best coins/second earned while away
+export const OFFLINE_BASE_RATE = 0.10; // share of recent coins/second earned while away
+export const IDLE_RUNS = 5; // idle coins follow the average of this many recent runs
 export const OFFLINE_BASE_CAP_H = 12;

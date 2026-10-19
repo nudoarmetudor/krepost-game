@@ -15,7 +15,7 @@ import {
   wsLevel, isUnlocked, workshopCost, buyWorkshop, unlockStat, wsDiscount, labLevel, labSpeedBonus, researchFor,
   startResearch, rushCost, rushResearch, buyLabSlot, openCards, toggleCard, buyCardSlot, uwState, unlockUw,
   upgradeUw, buyModulePack, equipModule, levelModule, mergeCandidates, mergeModule, dismantleModule,
-  moduleMainValue, moduleEffectValue, idleRate, idleCapSec, exportSave, importSave, newSave, SAVE_KEY,
+  moduleMainValue, moduleEffectValue, idleRate, idleCps, idleCapSec, tierReward, uwUnlockCost, exportSave, importSave, newSave, SAVE_KEY,
 } from './state.js';
 import { setNotation } from './format.js';
 import { setSound } from './audio.js';
@@ -102,13 +102,13 @@ export function homeScreen() {
     h('div', { class: 'kv', style: { marginTop: '8px' } },
       h('span', {}, 'Next milestone'), h('b', {}, next ? `wave ${next.wave}` : 'all done'),
       next ? h('span', { class: 'muted' }, 'Reward') : null,
-      next ? h('b', {}, `${Math.round(next.gems * (1 + 0.5 * (tier - 1)))} gems, ${Math.round(next.stones * (1 + 0.5 * (tier - 1)))} stones`) : null,
+      next ? h('b', {}, `${Math.round(next.gems * tierReward(tier))} gems, ${Math.round(next.stones * tierReward(tier))} stones`) : null,
       nextTier ? h('span', {}, `Tier ${s.tiersUnlocked + 1} opens at`) : null,
       nextTier ? h('b', {}, `wave ${nextTier.unlockWave} on tier ${s.tiersUnlocked}`) : null,
     ),
   );
 
-  const idle = s.stats.bestCoinsPerSec * idleRate(s) * 3600;
+  const idle = idleCps(s) * idleRate(s) * 3600;
   const away = h('div', { class: 'card' },
     h('h3', {}, 'While you are away'),
     h('div', { class: 'kv', style: { marginTop: '8px' } },
@@ -440,6 +440,7 @@ export { UW_COLOR };
 export function ultimatesScreen() {
   const s = app.save;
   const list = h('div', { class: 'list' });
+  const uwCost = uwUnlockCost(s);
   for (const uw of UWS) {
     const st = uwState(s, uw.id);
     const head = h('div', { class: 'row' },
@@ -447,9 +448,9 @@ export function ultimatesScreen() {
       h('span', { class: 'name grow', style: { fontWeight: 700 } }, uw.name));
     if (!st) {
       list.append(h('div', { class: 'card' }, head, h('div', { class: 'muted small', style: { margin: '4px 0 8px' } }, uw.desc),
-        h('button', { class: 'btn' + (s.stones >= uw.unlock ? ' primary' : ''), disabled: s.stones < uw.unlock, onclick: () => {
+        h('button', { class: 'btn' + (s.stones >= uwCost ? ' primary' : ''), disabled: s.stones < uwCost, onclick: () => {
           if (unlockUw(s, uw.id)) { play('perk'); toast(`${uw.name} unlocked`); commit(); app.refresh(); }
-        } }, 'Unlock ', cur('stone', String(uw.unlock)))));
+        } }, 'Unlock ', cur('stone', String(uwCost)))));
       continue;
     }
     const rows = uw.params.map((p) => {
@@ -467,7 +468,7 @@ export function ultimatesScreen() {
   }
   return h('div', { class: 'page' },
     h('div', { class: 'row spread' }, h('h2', {}, 'Ultimate Weapons'), cur('stone', fmtInt(s.stones))),
-    h('p', { class: 'muted small', style: { margin: 0 } }, 'Earn stones in every run (one per 10 waves, more on higher tiers) and from milestones. Ultimates fire on their own.'),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Earn stones in every run (one per 10 waves, more on higher tiers) and from milestones. Ultimates fire on their own. Each weapon you unlock makes the next one dearer, so pick your order.'),
     list,
   );
 }
