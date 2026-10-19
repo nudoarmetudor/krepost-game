@@ -6,7 +6,7 @@ import { fmt, fmtInt, fmtClock, fmtTime, setNotation } from './format.js';
 import { play, unlockAudio, setSound } from './audio.js';
 import { STATS, STAT_BY_ID, CATS, WORLD, PERK_BY_ID, UWS, TIERS } from './data.js';
 import { load, applyOffline, claimDaily, finishRun, isUnlocked } from './state.js';
-import { ensureMissions, ensureChallenge, ensureSeason, missionsWaiting } from './meta.js';
+import { ensureMissions, ensureChallenge, ensureSeason, missionsWaiting, challengeOpen } from './meta.js';
 import { Run } from './game.js';
 import { Renderer } from './render.js';
 import { openStats } from './statspanel.js';
@@ -125,7 +125,7 @@ function ensureMeta(now) {
   const s = app.save;
   const before = s.missions.day + s.missions.week + s.challenge.week + s.season.id;
   ensureMissions(s, now);
-  if (s.tiersUnlocked >= 2 || s.stats.runs >= 5) ensureChallenge(s, now);
+  if (challengeOpen(s)) ensureChallenge(s, now);
   ensureSeason(s, now);
   return before !== s.missions.day + s.missions.week + s.challenge.week + s.season.id;
 }

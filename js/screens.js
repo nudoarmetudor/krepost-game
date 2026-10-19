@@ -13,7 +13,7 @@ import {
   refinable, REFINE, UW_UNLOCK_COSTS,
 } from './data.js';
 import {
-  tabOpen, ensureMissions, missionText, missionDone, claimMission, ensureChallenge, challengeReward, weekEnds,
+  tabOpen, challengeOpen, ensureMissions, missionText, missionDone, claimMission, ensureChallenge, challengeReward, weekEnds,
   ensureSeason, seasonEnds, seasonRewardOf, cardSetProgress, canRefine, refineCost, buyRefine, refineLevel,
   bestTierForCoins,
 } from './meta.js';
@@ -137,7 +137,7 @@ export function homeScreen() {
   if (!s.seenIntro) page.append(h('div', { class: 'card' }, h('h3', {}, 'How to play'), howTo()));
   page.append(goalsCard());
   if (s.stats.runs > 0) page.append(missionsCard(now));
-  if (s.tiersUnlocked >= 2 || s.stats.runs >= 5) page.append(challengeCard(now));
+  if (challengeOpen(s)) page.append(challengeCard(now));
   if (s.stats.runs > 0) page.append(seasonCard(now));
 
   const idle = idleCps(s) * idleRate(s) * 3600;

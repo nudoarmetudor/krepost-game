@@ -531,7 +531,7 @@ export const CHALLENGE_REWARDS = [
 // they change nothing about how strong the tower is.
 export const SEASON_EPOCH = Date.UTC(2026, 9, 19); // a Monday
 export const SEASON_DAYS = 28;
-export const SEASON_REWARDS = [{ waves: 250 }, { waves: 800 }, { waves: 2000 }];
+export const SEASON_REWARDS = [{ waves: 1500 }, { waves: 5000 }, { waves: 12000 }];
 
 // Tower colours: the default plus the ones seasons hand out, two a season.
 export const THEMES = [

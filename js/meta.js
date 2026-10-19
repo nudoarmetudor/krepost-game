@@ -138,8 +138,14 @@ export function missionsWaiting(save) {
 
 // ------------------------------------------------------- weekly challenge
 
+// The challenge is played at the frontier: the highest tier open when the week starts.
 export function challengeTier(save) {
-  return Math.max(1, save.tiersUnlocked - 1);
+  return save.tiersUnlocked;
+}
+
+// Offered once the player has three tiers, so it never crowds the first hours.
+export function challengeOpen(save) {
+  return save.tiersUnlocked >= 3;
 }
 
 // This week's challenge, set up the first time it is looked at in the week.

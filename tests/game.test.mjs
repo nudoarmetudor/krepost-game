@@ -379,7 +379,7 @@ test('a challenge run uses its modifiers, pays its stones once a week, and sets 
   const s = newSave(now);
   s.tiersUnlocked = 3;
   const c = ensureChallenge(s, now);
-  assert.equal(c.tier, 2);
+  assert.equal(c.tier, 3);
   assert.equal(c.mods.length, 2);
   assert.equal(c.week, weekKey(now));
   const run = new Run(s, { tier: c.tier, challenge: { week: c.week, mods: ['glass', 'giants'] }, rand: seeded(3) });
@@ -387,16 +387,16 @@ test('a challenge run uses its modifiers, pays its stones once a week, and sets 
   assert.ok(Math.abs(run.S.maxHp - plain.S.maxHp * 0.5) < 1e-9);
   assert.equal(run.bossEvery(), 5);
   assert.deepEqual(challengeMods(['horde']).count, 2);
-  const back = new Run(s, { tier: 2, snapshot: run.snapshot() });
+  const back = new Run(s, { tier: 3, snapshot: run.snapshot() });
   assert.equal(back.bossEvery(), 5);
   const stones = s.stones;
-  const fin = finishRun(s, { ...runResult({ tier: 2, wave: 30 }), challenge: true, week: c.week }, now);
-  assert.equal(s.best[2], undefined);
+  const fin = finishRun(s, { ...runResult({ tier: 3, wave: 30 }), challenge: true, week: c.week }, now);
+  assert.equal(s.best[3], undefined);
   assert.equal(s.tiersUnlocked, 3);
-  const want = CHALLENGE_REWARDS.filter((r) => r.wave <= 30).reduce((a, r) => a + Math.round(r.stones * 1.25), 0);
+  const want = CHALLENGE_REWARDS.filter((r) => r.wave <= 30).reduce((a, r) => a + Math.round(r.stones * 1.5), 0);
   assert.equal(fin.challenge.reduce((a, r) => a + r.stones, 0), want);
   assert.equal(s.stones, stones + fin.stones + want);
-  const again = finishRun(s, { ...runResult({ tier: 2, wave: 30 }), challenge: true, week: c.week }, now);
+  const again = finishRun(s, { ...runResult({ tier: 3, wave: 30 }), challenge: true, week: c.week }, now);
   assert.equal(again.challenge.length, 0);
 });
 
@@ -408,7 +408,7 @@ test('a season counts waves and hands out its two colours, then a crest', () => 
   const [a, b] = seasonThemes(se.id);
   assert.notEqual(a.id, 'ember');
   let got = [];
-  for (let i = 0; i < 12; i++) got = got.concat(finishRun(s, runResult({ wave: 200 }), now).season);
+  for (let i = 0; i < 61; i++) got = got.concat(finishRun(s, runResult({ wave: 200 }), now).season);
   assert.ok(s.themes.includes(a.id) && s.themes.includes(b.id));
   assert.deepEqual(s.crests, [2]);
   assert.equal(got.length, 3);
