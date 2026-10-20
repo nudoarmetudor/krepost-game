@@ -248,3 +248,14 @@ export function computeStats(save, run) {
 }
 
 export { MODULE_SLOT_BY_ID };
+
+// How long the walls last once overrun: Fortitude lets in at most
+// cap × (1 + strain·t) raw damage a second, Defense % takes its share, Regen
+// heals up to `mend` of that. Lifesteal is left out: it depends on hitting
+// something.
+export function holdSeconds(S) {
+  const F = S.fortitude * (1 - S.defPct);
+  const a = (F * FORTITUDE.strain) / 2;
+  const b = F - Math.min(S.regen / S.maxHp, FORTITUDE.mend * F);
+  return (-b + Math.sqrt(b * b + 4 * a)) / (2 * a);
+}

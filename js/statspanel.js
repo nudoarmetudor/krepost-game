@@ -9,7 +9,7 @@ import {
   STAT_BY_ID, ENEMIES, WORLD, PERK_BY_ID, enemyHpAt, enemyDmgAt, enemyCashAt, enemyCoinsAt,
   spawnInterval, spawnTable, standoffAt, FORTITUDE,
 } from './data.js';
-import { computeStats } from './stats.js';
+import { computeStats, holdSeconds } from './stats.js';
 import { isUnlocked } from './state.js';
 
 const trim = (x, d) => x.toFixed(d).replace(/\.?0+$/, '');
@@ -120,17 +120,6 @@ function towerTab(save, run, S) {
     : null;
 
   return h('div', { class: 'list' }, summary, effectsCard, ...sections, perkCard);
-}
-
-// How long the walls last once overrun: Fortitude lets in at most
-// cap × (1 + strain·t) raw damage a second, Defense % takes its share, Regen
-// heals up to `mend` of that. Lifesteal is left out: it depends on hitting
-// something.
-export function holdSeconds(S) {
-  const F = S.fortitude * (1 - S.defPct);
-  const a = (F * FORTITUDE.strain) / 2;
-  const b = F - Math.min(S.regen / S.maxHp, FORTITUDE.mend * F);
-  return (-b + Math.sqrt(b * b + 4 * a)) / (2 * a);
 }
 
 function holdText(S) {

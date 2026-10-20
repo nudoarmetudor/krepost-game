@@ -4,7 +4,7 @@
 // No DOM: the run panel, the workshop, auto-buy, the tests and the sim share it.
 
 import { STATS, STAT_BY_ID, ENEMIES, WORLD, enemyHpAt, enemyDmgAt, spawnInterval, TIERS } from './data.js';
-import { computeStats } from './stats.js';
+import { computeStats, holdSeconds } from './stats.js';
 import { isUnlocked, wsLevel, workshopCost } from './state.js';
 
 // How much the walls count, how much cash and coins count, next to killing.
@@ -34,7 +34,9 @@ export function towerModel(S, w, tier) {
   const dps = dmgShot * shots + extraDps;
   const O = Math.pow(killRate, 0.7) * Math.pow(dps, 0.3);
   const mit = Math.max(raw * 0.002, Math.max(0, raw - S.defAbs) * (1 - S.defPct));
-  let Dv = (S.maxHp + 25 * S.regen) / mit;
+  // hits the health absorbs, plus the hits that arrive while Fortitude holds
+  // an overrun (late tiers, where one hit is worth more than the whole health)
+  let Dv = (S.maxHp + 25 * S.regen) / mit + holdSeconds(S) * S.enemyCountMult / spawnInterval(w);
   Dv *= 1 + 2 * S.thorns + (S.kbChance * S.kbForce) / 8 + S.pkgChance * S.recovery * 3 + S.lifesteal * 8;
   const kills = ((WORLD.waveSeconds - 2) / spawnInterval(w)) * S.enemyCountMult;
   const cashInc = S.cashWave * S.cashMult + kills * 2.6 * (1 + 0.025 * w) * S.cashMult * T.cash
