@@ -33,7 +33,11 @@ export function weekEnds(now) {
 function seededPick(key) {
   let h = 2166136261;
   for (const ch of key) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-  let a = h >>> 0;
+  // mix the hash so keys a few characters apart (one week to the next) start
+  // far apart; without this three weeks in a row drew the same modifiers
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  let a = (h ^ (h >>> 16)) >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
     let t = Math.imul(a ^ (a >>> 15), a | 1);
