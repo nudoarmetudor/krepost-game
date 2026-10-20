@@ -1,6 +1,6 @@
 // Draws a run onto a canvas. Reads the run, never changes it.
 
-import { WORLD } from './data.js';
+import { WORLD, THEME_BY_ID } from './data.js';
 import { fmt } from './format.js';
 
 const TAU = Math.PI * 2;
@@ -257,15 +257,26 @@ export class Renderer {
       ctx.globalAlpha = Math.max(0.15, Math.min(1, edge + 0.15));
       ctx.save();
       ctx.translate(e.x, e.y);
-      if (d.shape === 'ring') {
-        ctx.strokeStyle = 'rgba(111,231,255,0.22)';
+      if (d.shape === 'ring' || d.heals) {
+        ctx.strokeStyle = d.heals ? 'rgba(182,255,138,0.2)' : 'rgba(111,231,255,0.22)';
         ctx.lineWidth = 0.22;
         ctx.setLineDash([0.8, 0.8]);
-        ctx.lineDashOffset = this.time * 2;
+        ctx.lineDashOffset = this.time * (d.heals ? -2 : 2);
         ctx.beginPath();
-        ctx.arc(0, 0, d.aura, 0, TAU);
+        ctx.arc(0, 0, d.heals ? d.healR : d.aura, 0, TAU);
         ctx.stroke();
         ctx.setLineDash([]);
+      }
+      if (e.windup > 0 && !e.leapt) {
+        // a Pouncer gathering itself: a tightening ring
+        const k = Math.min(1, e.windup / d.leapWind);
+        ctx.strokeStyle = d.color;
+        ctx.globalAlpha *= 0.4 + 0.6 * k;
+        ctx.lineWidth = 0.3;
+        ctx.beginPath();
+        ctx.arc(0, 0, r + 2.2 * (1 - k) + 0.4, 0, TAU);
+        ctx.stroke();
+        ctx.globalAlpha = Math.max(0.15, Math.min(1, edge + 0.15));
       }
       ctx.rotate(d.shape === 'boss' ? e.angle + this.time * 0.4 : d.shape === 'ring' || d.shape === 'hex' ? e.angle + this.time * 0.8 : e.angle);
       shapePath(ctx, d.shape, r);
@@ -281,6 +292,23 @@ export class Renderer {
       ctx.fill();
       ctx.restore();
       ctx.globalAlpha = 1;
+      if (e.guard > 0) {
+        // the Phalanx shield faces the tower, one plate per hit it can still take
+        const n = d.guard;
+        const span = 2.2;
+        const gap = 0.12;
+        const seg = (span - gap * (n - 1)) / n;
+        ctx.lineWidth = 0.42;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < n; i++) {
+          const a0 = e.angle - span / 2 + i * (seg + gap);
+          ctx.strokeStyle = i < e.guard ? 'rgba(220,232,255,0.95)' : 'rgba(169,193,255,0.18)';
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, e.r + 0.75, a0, a0 + seg);
+          ctx.stroke();
+        }
+        ctx.lineCap = 'butt';
+      }
       if (e.shielded) {
         ctx.strokeStyle = 'rgba(111,231,255,0.75)';
         ctx.lineWidth = 0.22;
@@ -313,6 +341,7 @@ export class Renderer {
 
   tower(run) {
     const ctx = this.ctx;
+    const th = THEME_BY_ID[run.save.settings.theme] || THEME_BY_ID.ember;
     const R = WORLD.towerRadius;
     const S = run.S;
     const hpFrac = Math.max(0, run.hp) / S.maxHp;
@@ -320,8 +349,8 @@ export class Renderer {
     const pulse = Math.max(0, run.fireT || 0) / 0.12;
     // glow
     const glow = ctx.createRadialGradient(0, 0, R * 0.5, 0, 0, R * 3.2);
-    glow.addColorStop(0, demon ? 'rgba(255,60,60,0.55)' : `rgba(255,181,71,${0.3 + 0.12 * pulse})`);
-    glow.addColorStop(1, 'rgba(255,181,71,0)');
+    glow.addColorStop(0, demon ? 'rgba(255,60,60,0.55)' : `rgba(${th.glow},${0.3 + 0.12 * pulse})`);
+    glow.addColorStop(1, `rgba(${th.glow},0)`);
     ctx.fillStyle = glow;
     ctx.beginPath();
     ctx.arc(0, 0, R * 3.2, 0, TAU);
@@ -342,7 +371,7 @@ export class Renderer {
       wall.addColorStop(1, '#222b45');
     }
     ctx.fillStyle = wall;
-    ctx.strokeStyle = demon ? '#ff5f5f' : '#ffb547';
+    ctx.strokeStyle = demon ? '#ff5f5f' : th.line;
     ctx.lineWidth = 0.32;
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -380,11 +409,11 @@ export class Renderer {
     // the core every shot leaves from: swells and brightens as it fires
     const cr = R * (0.3 + 0.07 * pulse);
     const core = ctx.createRadialGradient(0, 0, 0, 0, 0, cr * 1.6);
-    const hot = demon ? '255,120,120' : '255,214,140';
+    const hot = demon ? '255,120,120' : th.hot;
     core.addColorStop(0, '#fffaf0');
     core.addColorStop(0.35, `rgba(${hot},1)`);
-    core.addColorStop(0.7, demon ? 'rgba(255,60,60,0.85)' : 'rgba(255,160,40,0.85)');
-    core.addColorStop(1, 'rgba(255,140,30,0)');
+    core.addColorStop(0.7, demon ? 'rgba(255,60,60,0.85)' : `rgba(${th.mid},0.85)`);
+    core.addColorStop(1, `rgba(${th.mid},0)`);
     ctx.fillStyle = core;
     ctx.beginPath();
     ctx.arc(0, 0, cr * 1.6, 0, TAU);
@@ -392,7 +421,7 @@ export class Renderer {
     // slow rune ring around the core
     ctx.save();
     ctx.rotate(this.time * 0.6);
-    ctx.strokeStyle = demon ? 'rgba(255,120,120,0.5)' : 'rgba(255,200,120,0.45)';
+    ctx.strokeStyle = demon ? 'rgba(255,120,120,0.5)' : `rgba(${th.hot},0.45)`;
     ctx.lineWidth = 0.14;
     ctx.setLineDash([0.5, 0.45]);
     ctx.beginPath();
@@ -629,6 +658,35 @@ function shapePath(ctx, shape, r) {
     case 'ring':
       ctx.arc(0, 0, r, 0, TAU);
       break;
+    case 'shield':
+      ctx.moveTo(r, 0);
+      ctx.lineTo(r * 0.3, r * 0.85);
+      ctx.lineTo(-r * 0.8, r * 0.6);
+      ctx.lineTo(-r * 0.8, -r * 0.6);
+      ctx.lineTo(r * 0.3, -r * 0.85);
+      break;
+    case 'chevron':
+      ctx.moveTo(r, 0);
+      ctx.lineTo(-r * 0.8, r * 0.85);
+      ctx.lineTo(-r * 0.3, 0);
+      ctx.lineTo(-r * 0.8, -r * 0.85);
+      break;
+    case 'cross': {
+      const a = r * 0.36;
+      ctx.moveTo(a, -r);
+      ctx.lineTo(a, -a);
+      ctx.lineTo(r, -a);
+      ctx.lineTo(r, a);
+      ctx.lineTo(a, a);
+      ctx.lineTo(a, r);
+      ctx.lineTo(-a, r);
+      ctx.lineTo(-a, a);
+      ctx.lineTo(-r, a);
+      ctx.lineTo(-r, -a);
+      ctx.lineTo(-a, -a);
+      ctx.lineTo(-a, -r);
+      break;
+    }
     case 'boss':
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * TAU;

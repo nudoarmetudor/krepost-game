@@ -6,8 +6,9 @@ import {
   CARD_PACK, CARD_SLOT_COSTS, RARITY, UWS, UW_BY_ID, uwParamCost, DEFAULT_PERK_ORDER,
   MODULE_SLOTS, MODULE_SLOT_BY_ID, MODULE_RARITIES, MODULE_MAX_LEVEL, MODULE_PACK_COST,
   MODULE_PACK_WEIGHTS, MODULE_MERGE_COUNT, MODULE_DISMANTLE, moduleLevelCost, wsCost,
-  STAT_BY_ID, TIERS, MILESTONES, DAILY_GEMS, OFFLINE_BASE_RATE, OFFLINE_BASE_CAP_H,
+  STAT_BY_ID, TIERS, MILESTONES, DAILY_GEMS, OFFLINE_BASE_RATE, OFFLINE_BASE_CAP_H, IDLE_RUNS, TIER_REWARD_STEP, UW_UNLOCK_COSTS,
 } from './data.js';
+import { closeMeta } from './meta.js';
 
 export const SAVE_KEY = 'krepost-save-v1';
 
@@ -39,13 +40,25 @@ export function newSave(now = Date.now()) {
     milestones: {},
     stats: {
       runs: 0, kills: 0, bossKills: 0, coinsEarned: 0, cashEarned: 0, gemsEarned: 0,
-      playSec: 0, damage: 0, waves: 0, bestCoinsPerSec: 0,
+      playSec: 0, damage: 0, waves: 0, bestCoinsPerSec: 0, recentCps: [],
     },
     lastSeen: now,
     lastDaily: '',
-    settings: { sound: true, vibrate: true, notation: 'letters', dmgNumbers: true, confirmEnd: true, speed: 1 },
+    settings: {
+      sound: true, vibrate: true, notation: 'letters', dmgNumbers: true, confirmEnd: true, speed: 2, theme: 'ember',
+      autoBuy: true, autoSplit: { attack: 50, defense: 25, utility: 25 },
+    },
     run: null,
     seenIntro: false,
+    seenTabs: {},
+    refine: {},
+    missions: { day: '', daily: [], week: '', weekly: [] },
+    challenge: { week: '', mods: [], tier: 1, best: 0, claimed: [] },
+    season: { id: 0, waves: 0, claimed: [] },
+    themes: ['ember'],
+    crests: [],
+    history: {},
+    tierRates: {},
   };
 }
 
@@ -56,14 +69,21 @@ export function migrate(raw, now = Date.now()) {
   const s = { ...base, ...raw };
   s.stats = { ...base.stats, ...(raw.stats || {}) };
   s.settings = { ...base.settings, ...(raw.settings || {}) };
-  for (const k of ['ws', 'unlocked', 'labs', 'cards', 'uws', 'equipped', 'best', 'milestones']) {
+  for (const k of ['ws', 'unlocked', 'labs', 'cards', 'uws', 'equipped', 'best', 'milestones', 'seenTabs', 'refine', 'history', 'tierRates']) {
     if (!s[k] || typeof s[k] !== 'object' || Array.isArray(s[k])) s[k] = {};
   }
-  for (const k of ['research', 'equippedCards', 'modules']) if (!Array.isArray(s[k])) s[k] = [];
+  for (const k of ['research', 'equippedCards', 'modules', 'crests']) if (!Array.isArray(s[k])) s[k] = [];
+  if (!Array.isArray(s.themes) || !s.themes.includes('ember')) s.themes = ['ember', ...(Array.isArray(s.themes) ? s.themes : [])];
+  for (const k of ['missions', 'challenge', 'season']) s[k] = { ...base[k], ...(raw[k] && typeof raw[k] === 'object' ? raw[k] : {}) };
   // perks added after the save was made go to the end of the priority list
   const order = Array.isArray(s.perkOrder) ? s.perkOrder.filter((id) => DEFAULT_PERK_ORDER.includes(id)) : [];
   for (const id of DEFAULT_PERK_ORDER) if (!order.includes(id)) order.push(id);
   s.perkOrder = order;
+  // players from before the tabs opened one by one have seen them all already
+  if (!raw.seenTabs && (raw.stats && raw.stats.runs) > 3) s.seenTabs = { labs: true, ultimates: true, cards: true, modules: true };
+  // idle used to follow the best run ever; start the recent list from it
+  if (!Array.isArray(s.stats.recentCps)) s.stats.recentCps = [];
+  if (!s.stats.recentCps.length && s.stats.bestCoinsPerSec > 0) s.stats.recentCps = [s.stats.bestCoinsPerSec];
   s.v = VERSION;
   return s;
 }
@@ -158,6 +178,11 @@ export function labSpeedBonus(save) {
   return labValue(save, 'labSpeed');
 }
 
+// Some research needs another finished first.
+export function labReady(save, lab) {
+  return !lab.requires || labLevel(save, lab.requires) > 0;
+}
+
 export function researchFor(save, id) {
   return save.research.find((r) => r.lab === id);
 }
@@ -166,6 +191,7 @@ export function startResearch(save, id, now = Date.now()) {
   const lab = LAB_BY_ID[id];
   const lvl = labLevel(save, id);
   if (lvl >= lab.max || researchFor(save, id)) return false;
+  if (!labReady(save, lab)) return false;
   if (save.research.length >= save.labSlots) return false;
   const cost = labCost(lab, lvl);
   if (save.coins < cost) return false;
@@ -263,13 +289,15 @@ export function unlockedUwCount(save) {
   return Object.values(save.uws).filter((u) => u && u.on).length;
 }
 
-export function uwUnlockCost(save, id) {
-  return UW_BY_ID[id].unlock;
+// The next weapon costs more the more you already own, whichever you pick.
+export function uwUnlockCost(save) {
+  const n = unlockedUwCount(save);
+  return UW_UNLOCK_COSTS[Math.min(n, UW_UNLOCK_COSTS.length - 1)];
 }
 
 export function unlockUw(save, id) {
   if (uwState(save, id)) return false;
-  const cost = uwUnlockCost(save, id);
+  const cost = uwUnlockCost(save);
   if (save.stones < cost) return false;
   save.stones -= cost;
   save.uws[id] = { on: true, lv: {} };
@@ -410,12 +438,20 @@ export function idleCapSec(save) {
   return (OFFLINE_BASE_CAP_H + labValue(save, 'idleCap')) * 3600;
 }
 
-// Coins earned while away, based on the best coins per second of any run.
+// Coins per second of the last few runs, averaged: one lucky run does not
+// raise idle income for good.
+export function idleCps(save) {
+  const r = save.stats.recentCps || [];
+  return r.length ? r.reduce((a, b) => a + b, 0) / r.length : 0;
+}
+
+// Coins earned while away, based on the recent runs' coins per second.
 export function offlineEarnings(save, now = Date.now()) {
   const away = Math.max(0, (now - (save.lastSeen ?? now)) / 1000);
-  if (away < 60 || !save.stats.bestCoinsPerSec) return { away, coins: 0, counted: 0 };
+  const cps = idleCps(save);
+  if (away < 60 || !cps) return { away, coins: 0, counted: 0 };
   const counted = Math.min(away, idleCapSec(save));
-  const coins = Math.floor(counted * save.stats.bestCoinsPerSec * idleRate(save));
+  const coins = Math.floor(counted * cps * idleRate(save));
   return { away, coins, counted };
 }
 
@@ -444,8 +480,8 @@ export function claimMilestones(save, tier, wave) {
   for (const m of MILESTONES) {
     if (wave >= m.wave && !claimed.includes(m.wave)) {
       claimed.push(m.wave);
-      const gems = Math.round(m.gems * (1 + 0.5 * (tier - 1)));
-      const stones = Math.round(m.stones * (1 + 0.5 * (tier - 1)));
+      const gems = Math.round(m.gems * tierReward(tier));
+      const stones = Math.round(m.stones * tierReward(tier));
       save.gems += gems;
       save.stones += stones;
       save.stats.gemsEarned += gems;
@@ -456,13 +492,19 @@ export function claimMilestones(save, tier, wave) {
   return got;
 }
 
+export function tierReward(tier) {
+  return 1 + TIER_REWARD_STEP * (tier - 1);
+}
+
 export function runStones(wave, tier) {
-  return Math.floor((wave / 10) * (1 + 0.5 * (tier - 1)));
+  return Math.floor((wave / 10) * tierReward(tier));
 }
 
 // Close a finished run into the save. Returns what the summary screen shows.
-export function finishRun(save, result) {
-  const { tier, wave, coins, cash, kills, bossKills, simSec, damage, gems = 0, shards = 0 } = result;
+// A weekly challenge run pays coins, stones and its own rewards, but sets no
+// records and opens no tiers.
+export function finishRun(save, result, now = Date.now()) {
+  const { tier, wave, coins, cash, kills, bossKills, simSec, damage, gems = 0, shards = 0, challenge = false } = result;
   const stones = runStones(wave, tier);
   save.stones += stones;
   save.coins += coins;
@@ -476,9 +518,15 @@ export function finishRun(save, result) {
   save.stats.cashEarned += cash;
   save.stats.damage += damage;
   save.stats.waves += wave;
+  if (challenge) {
+    save.run = null;
+    const meta = closeMeta(save, result, now);
+    return { stones, milestones: [], newBest: false, newTier: 0, ...meta };
+  }
   if (simSec > 60) {
     const cps = coins / simSec;
     if (cps > save.stats.bestCoinsPerSec) save.stats.bestCoinsPerSec = cps;
+    save.stats.recentCps = [...save.stats.recentCps, cps].slice(-IDLE_RUNS);
   }
   const prevBest = save.best[tier] || 0;
   if (wave > prevBest) save.best[tier] = wave;
@@ -489,7 +537,8 @@ export function finishRun(save, result) {
     newTier = save.tiersUnlocked;
   }
   save.run = null;
-  return { stones, milestones, newBest: wave > prevBest, newTier };
+  const meta = closeMeta(save, result, now);
+  return { stones, milestones, newBest: wave > prevBest, newTier, ...meta };
 }
 
 export { STATS, LABS, CARDS, CARD_BY_ID, UWS, MODULE_SLOTS };

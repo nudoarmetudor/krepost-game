@@ -2,9 +2,10 @@
 // upgrades and perks into one flat object the simulation reads every tick.
 
 import {
-  STAT_BY_ID, CARD_BY_ID, cardStars, UWS, MODULE_SLOT_BY_ID, LAB_BY_ID, PERK_BY_ID, RARITY, MODULE_RARITIES,
+  FORTITUDE, TIERS, STAT_BY_ID, CARD_BY_ID, cardStars, UWS, MODULE_SLOT_BY_ID, LAB_BY_ID, PERK_BY_ID, RARITY, MODULE_RARITIES, REFINE,
 } from './data.js';
 import { wsLevel, isUnlocked, labValue, moduleByUid, moduleMainValue, moduleEffectValue, uwState } from './state.js';
+import { refineLevel, cardSetBonus } from './meta.js';
 
 export function statLevel(save, run, stat) {
   if (!isUnlocked(save, stat)) return 0;
@@ -101,8 +102,17 @@ export function computeStats(save, run) {
     const rl = run ? run.lv[id] || 0 : 0;
     return `Level ${Math.min(stat.max, ws + rl)} (workshop ${ws}${run ? ` + run ${rl}` : ''})`;
   };
-  // stat built from an upgrade
-  const T = (id, sid = id) => new Track(X, id, lvLabel(sid), v(sid));
+  // stat built from an upgrade, refined past its workshop maximum
+  const T = (id, sid = id) => {
+    const t = new Track(X, id, lvLabel(sid), v(sid));
+    const r = refineLevel(save, sid);
+    if (r) t.mul(`Refined ×${r}`, sid === 'swInterval' ? 1 / (1 + REFINE.per * r) : 1 + REFINE.per * r);
+    return t;
+  };
+  const mods = run && run.mods;
+  const modM = (k) => (mods ? mods[k] : 1);
+  const chL = mods ? `Challenge: ${mods.names.join(' + ')}` : '';
+  const setL = 'Card collection';
   // stat with a fixed starting value
   const F = (id, label, base) => new Track(X, id, label, base);
   const labL = (id) => `Lab: ${LAB_BY_ID[id].name}`;
@@ -124,12 +134,13 @@ export function computeStats(save, run) {
 
   S.damage = T('damage').mul(labL('dmg'), 1 + lab('dmg')).mul(cardL('damage'), 1 + c('damage'))
     .mul(modL('cannon'), 1 + moduleMain(save, 'cannon')).mul(perkL('dmg'), 1.15 ** p('dmg'))
-    .mul(perkL('glass'), glass ? 1.8 : 1).mul(perkL('fortify'), fortify ? 0.8 : 1).v;
+    .mul(perkL('glass'), glass ? 1.8 : 1).mul(perkL('fortify'), fortify ? 0.8 : 1)
+    .mul(setL, 1 + cardSetBonus(save, 'damage')).mul(chL, modM('dmg')).v;
   S.atkSpeed = T('atkSpeed').mul(labL('atkSpeed'), 1 + lab('atkSpeed')).mul(cardL('atkSpeed'), 1 + c('atkSpeed'))
     .mul(perkL('overclock'), p('overclock') ? 1.35 : 1).mul(perkL('ironskin'), p('ironskin') ? 0.85 : 1).v;
   S.critChance = T('critChance').add(cardL('crit'), c('crit')).cap(1).v;
   S.critFactor = T('critFactor').mul(labL('critFactor'), 1 + lab('critFactor')).v;
-  S.range = T('range').add(cardL('range'), c('range')).add(perkL('range'), 3 * p('range')).v;
+  S.range = T('range').add(cardL('range'), c('range')).add(perkL('range'), 3 * p('range')).mul(chL, modM('range')).v;
   S.dmgPerMeter = T('dmgPerMeter').v;
   S.msChance = T('msChance').v;
   S.msTargets = T('msTargets').v;
@@ -138,14 +149,18 @@ export function computeStats(save, run) {
 
   S.maxHp = T('maxHp', 'health').mul(labL('health'), 1 + lab('health')).mul(cardL('health'), 1 + c('health'))
     .mul(modL('armor'), 1 + moduleMain(save, 'armor')).mul(perkL('hp'), 1.2 ** p('hp'))
-    .mul(perkL('glass'), glass ? 0.6 : 1).mul(perkL('fortify'), fortify ? 1.6 : 1).v;
+    .mul(perkL('glass'), glass ? 0.6 : 1).mul(perkL('fortify'), fortify ? 1.6 : 1)
+    .mul(setL, 1 + cardSetBonus(save, 'health')).mul(chL, modM('hp')).v;
   S.regen = T('regen').mul(labL('regen'), 1 + lab('regen')).mul(cardL('regen'), 1 + c('regen'))
     .mul(perkL('regen'), 1.3 ** p('regen')).mul(perkL('overclock'), p('overclock') ? 0.5 : 1)
     .mul(modFxL('armor'), moduleFx(save, 'armor', 'mender', 1)).v;
   S.defPct = T('defPct').add(cardL('defense'), c('defense')).add(perkL('defense'), 0.04 * p('defense'))
     .add(perkL('ironskin'), p('ironskin') ? 0.12 : 0).add(modFxL('armor'), moduleFx(save, 'armor', 'bulwark', 0))
     .cap(0.95).v;
-  S.defAbs = T('defAbs').mul(labL('defAbs'), 1 + lab('defAbs')).v;
+  // flat blocking grows with the tier played, as enemy damage does
+  const tier = (run && run.tier) || save.tier || 1;
+  S.defAbs = T('defAbs').mul(labL('defAbs'), 1 + lab('defAbs')).mul(`Tier ${tier}`, TIERS[tier - 1].dmg).v;
+  S.fortitude = F('fortitude', 'Base', FORTITUDE.cap).v;
   S.thorns = T('thorns').mul(modFxL('armor'), moduleFx(save, 'armor', 'reflector', 1)).v;
   S.lifesteal = T('lifesteal').add(perkL('lifesteal'), 0.015 * p('lifesteal')).v;
   S.kbChance = T('kbChance').v;
@@ -159,14 +174,16 @@ export function computeStats(save, run) {
 
   const genMain = 1 + moduleMain(save, 'generator');
   S.enemyCountMult = F('enemyCountMult', 'Base', 1).mul(cardL('enemyBalance'), 1 + c('enemyBalance'))
-    .mul(perkL('swarm'), p('swarm') ? 1.5 : 1).v;
-  S.enemyHpMult = F('enemyHpMult', 'Base', 1).mul(perkL('bounty'), p('bounty') ? 1.35 : 1).v;
+    .mul(perkL('swarm'), p('swarm') ? 1.5 : 1).mul(chL, modM('count')).v;
+  S.enemyHpMult = F('enemyHpMult', 'Base', 1).mul(perkL('bounty'), p('bounty') ? 1.35 : 1).mul(chL, modM('ehp')).v;
   S.cashMult = T('cashMult', 'cashBonus').mul(labL('cash'), 1 + lab('cash')).mul(cardL('cash'), 1 + c('cash'))
-    .mul(modL('generator'), genMain).mul(perkL('cash'), 1.15 ** p('cash')).mul(perkL('bounty'), p('bounty') ? 1.6 : 1).v;
+    .mul(modL('generator'), genMain).mul(perkL('cash'), 1.15 ** p('cash')).mul(perkL('bounty'), p('bounty') ? 1.6 : 1)
+    .mul(chL, modM('cash')).v;
   S.cashWave = T('cashWave').v;
   S.coinMult = T('coinMult', 'coinKill').mul(labL('coins'), 1 + lab('coins')).mul(cardL('coins'), 1 + c('coins'))
     .mul(modL('generator'), genMain).mul(perkL('coins'), 1.12 ** p('coins'))
-    .mul(perkL('swarm'), p('swarm') ? 1.5 : 1).mul(cardL('enemyBalance'), 1 + c('enemyBalance')).v;
+    .mul(perkL('swarm'), p('swarm') ? 1.5 : 1).mul(cardL('enemyBalance'), 1 + c('enemyBalance'))
+    .mul(setL, 1 + cardSetBonus(save, 'coins')).v;
   S.coinWave = T('coinWave').v;
   const freeC = c('freeUps');
   const freeP = 0.05 * p('freeUps');
@@ -222,7 +239,8 @@ export function computeStats(save, run) {
   S.perkInterval = Math.max(4, Math.round(10 - lab('perkFreq')));
   S.perkChoices = 3 + lab('perkChoices');
   S.autoPerk = lab('autoPerk') > 0 && save.autoPerk;
-  S.startCash = lab('startCash');
+  S.autoBuy = lab('autoBuy') > 0 && !!save.settings.autoBuy;
+  S.startCash = lab('startCash') + (mods ? mods.startCash : 0);
   S.shardMult = 1 + lab('shards');
   // not enumerable, so S still copies and compares as plain numbers
   Object.defineProperty(S, 'explain', { value: X, enumerable: false });
@@ -230,3 +248,14 @@ export function computeStats(save, run) {
 }
 
 export { MODULE_SLOT_BY_ID };
+
+// How long the walls last once overrun: Fortitude lets in at most
+// cap × (1 + strain·t) raw damage a second, Defense % takes its share, Regen
+// heals up to `mend` of that. Lifesteal is left out: it depends on hitting
+// something.
+export function holdSeconds(S) {
+  const F = S.fortitude * (1 - S.defPct);
+  const a = (F * FORTITUDE.strain) / 2;
+  const b = F - Math.min(S.regen / S.maxHp, FORTITUDE.mend * F);
+  return (-b + Math.sqrt(b * b + 4 * a)) / (2 * a);
+}

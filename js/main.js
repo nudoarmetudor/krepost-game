@@ -4,11 +4,13 @@ import { app, commit } from './app.js';
 import { h, icon, cur, toast, modal, modalOpen } from './dom.js';
 import { fmt, fmtInt, fmtClock, fmtTime, setNotation } from './format.js';
 import { play, unlockAudio, setSound } from './audio.js';
-import { STATS, CATS, WORLD, PERK_BY_ID, UWS, TIERS } from './data.js';
+import { STATS, STAT_BY_ID, CATS, WORLD, PERK_BY_ID, UWS, TIERS, REFINE } from './data.js';
 import { load, applyOffline, claimDaily, finishRun, isUnlocked } from './state.js';
+import { ensureMissions, ensureChallenge, ensureSeason, missionsWaiting, challengeOpen, refineLevel } from './meta.js';
 import { Run } from './game.js';
 import { Renderer } from './render.js';
 import { openStats } from './statspanel.js';
+import { runAdvice } from './advisor.js';
 import {
   renderTopbar, renderTabs, homeScreen, workshopScreen, labsScreen, cardsScreen, modulesScreen,
   ultimatesScreen, moreScreen, howTo, UW_COLOR,
@@ -28,12 +30,14 @@ function boot() {
   setSound(app.save.settings.sound);
   const away = applyOffline(app.save, Date.now());
   const daily = claimDaily(app.save, Date.now());
+  ensureMeta(Date.now());
   commit();
 
   app.go = go;
   app.refresh = refresh;
   app.startRun = startRun;
   app.continueRun = continueRun;
+  app.startChallenge = startChallenge;
   app.openStats = openStats;
 
   document.addEventListener('pointerdown', unlockAudio, { capture: true });
@@ -116,12 +120,23 @@ function refresh() {
   if (app.screen === 'battle' && app.renderer) app.renderer.resize();
 }
 
+// New missions, a new weekly challenge or a new season when the date turns.
+function ensureMeta(now) {
+  const s = app.save;
+  const before = s.missions.day + s.missions.week + s.challenge.week + s.season.id;
+  ensureMissions(s, now);
+  if (challengeOpen(s)) ensureChallenge(s, now);
+  ensureSeason(s, now);
+  return before !== s.missions.day + s.missions.week + s.challenge.week + s.season.id;
+}
+
 // Once a second: labs, idle coins, daily gems, autosave.
 let saveTick = 0;
 function tick() {
   const s = app.save;
   if (!s || document.hidden) return;
   const now = Date.now();
+  if (ensureMeta(now) && app.screen === 'home') refresh();
   const away = applyOffline(s, now);
   for (const id of away.labsDone) toast('Research finished');
   const daily = claimDaily(s, now);
@@ -139,6 +154,17 @@ function tick() {
 function startRun() {
   const s = app.save;
   app.run = new Run(s, { tier: s.tier });
+  s.run = app.run.snapshot();
+  app.paused = false;
+  commit();
+  enterBattle();
+}
+
+function startChallenge() {
+  const s = app.save;
+  if (s.run) return;
+  const c = ensureChallenge(s, Date.now());
+  app.run = new Run(s, { tier: c.tier, challenge: { week: c.week, mods: c.mods } });
   s.run = app.run.snapshot();
   app.paused = false;
   commit();
@@ -169,7 +195,7 @@ function endRun() {
   const run = app.run;
   if (!run) return;
   const res = run.result();
-  const fin = finishRun(app.save, res);
+  const fin = finishRun(app.save, res, Date.now());
   app.run = null;
   commit();
   summaryOpen = true;
@@ -189,13 +215,17 @@ function endRun() {
   if (res.shards) rewards.push(['Shards', cur('shard', '+' + res.shards)]);
   if (res.modules) rewards.push(['Modules found', String(res.modules)]);
   for (const m of fin.milestones) rewards.push([`Wave ${m.wave} milestone`, h('span', { class: 'row' }, cur('gem', '+' + m.gems), m.stones ? cur('stone', '+' + m.stones) : null)]);
+  for (const c of fin.challenge || []) rewards.push([`Challenge, wave ${c.wave}`, cur('stone', '+' + c.stones)]);
+  for (const it of fin.season || []) rewards.push(['Season reward', it.name]);
+  const waiting = missionsWaiting(app.save);
 
   const close = modal(h('div', { class: 'list' },
-    h('h2', {}, fin.newBest ? 'New best!' : 'The walls fell'),
+    h('h2', {}, res.challenge ? 'Challenge over' : fin.newBest ? 'New best!' : 'The walls fell'),
     h('div', { style: { textAlign: 'center', fontSize: '40px', fontWeight: 800 } }, 'Wave ' + res.wave),
     h('div', { class: 'muted small', style: { textAlign: 'center' } }, `Tier ${res.tier} · ${fmtTime(res.simSec)} · ${fmt(res.kills)} enemies · ${res.bossKills} bosses`),
     fin.newTier ? h('div', { class: 'card', style: { textAlign: 'center', borderColor: 'var(--accent)' } }, `Tier ${fin.newTier} is open!`) : null,
     h('div', { class: 'kv' }, rewards.flatMap(([k, v]) => [h('span', {}, k), h('b', {}, v)])),
+    waiting ? h('div', { class: 'card', style: { textAlign: 'center' } }, `${waiting} mission${waiting > 1 ? 's' : ''} done: collect on Home`) : null,
     sources.length ? h('div', { class: 'sources' }, h('h3', {}, 'Damage'), sources) : null,
     h('div', { class: 'row' },
       h('button', { class: 'btn grow', onclick: () => { close(); go('home'); } }, 'Home'),
@@ -314,13 +344,24 @@ function battleScreen() {
   const panel = h('div', { class: 'panel' }, tabsBox, grid);
 
   let buttons = [];
+  let catSeg = null;
+  // Auto Upgrade, once researched: on and off during the run
+  const autoBtn = h('button', { class: 'btn small auto-btn', 'aria-label': 'Auto upgrade', onclick: () => {
+    app.save.settings.autoBuy = !app.save.settings.autoBuy;
+    run.recompute();
+    play('click');
+    commit();
+    updatePanel();
+  } });
   const buildPanel = () => {
     const tab = app.ui.runTab;
     const mult = app.ui.runMult;
-    tabsBox.replaceChildren(
-      segEl(CATS.map((c) => [c.id, c.name]), tab, (v) => { app.ui.runTab = v; buildPanel(); }),
+    catSeg = segEl(CATS.map((c) => [c.id, c.name]), tab, (v) => { app.ui.runTab = v; buildPanel(); });
+    tabsBox.replaceChildren(...[
+      catSeg,
       segEl([[1, '×1'], [10, '×10'], ['max', 'Max']], mult, (v) => { app.ui.runMult = v; buildPanel(); }, { flex: '0 0 auto' }),
-    );
+      app.save.labs.autoBuy ? autoBtn : null,
+    ].filter(Boolean));
     buttons = [];
     grid.replaceChildren();
     for (const stat of STATS.filter((x) => x.cat === tab && isUnlocked(app.save, x))) {
@@ -339,7 +380,7 @@ function battleScreen() {
         } else play('nope');
         return bought;
       };
-      const b = h('button', { class: 'upg ' + stat.cat }, h('div', { class: 'in' }, n, v, c), l);
+      const b = h('button', { class: 'upg ' + stat.cat }, h('div', { class: 'in' }, n, v, c), l, h('span', { class: 'bv' }, 'Best value'));
       holdToRepeat(b, buyOnce);
       buttons.push({ stat, b, v, c, l });
       grid.append(b);
@@ -349,10 +390,19 @@ function battleScreen() {
 
   const updatePanel = () => {
     const mult = app.ui.runMult;
+    // the best value per cash, by the advisor's model: badge it, and dot the
+    // category tab that holds it
+    const best = runAdvice(run).best;
+    if (catSeg) CATS.forEach((cat, i) => catSeg.children[i].classList.toggle('hasbest', best.some((id) => STAT_BY_ID[id].cat === cat.id)));
+    autoBtn.textContent = 'Auto';
+    autoBtn.setAttribute('aria-pressed', app.save.settings.autoBuy ? 'true' : 'false');
+    autoBtn.classList.toggle('primary', !!app.save.settings.autoBuy);
     for (const { stat, b, v, c, l } of buttons) {
       const lvl = Math.min(stat.max, (app.save.ws[stat.id] || 0) + run.runLevel(stat.id));
       const fmtV = (x) => (stat.f === 'big' ? fmt(x) : stat.f(x));
-      v.textContent = fmtV(stat.v(lvl));
+      // refining past the maximum scales the value, as in the stats panel
+      const rf = 1 + REFINE.per * refineLevel(app.save, stat.id);
+      v.textContent = fmtV(stat.id === 'swInterval' ? stat.v(lvl) / rf : stat.v(lvl) * rf);
       l.textContent = run.runLevel(stat.id) ? '+' + run.runLevel(stat.id) : '';
       if (!run.canUpgrade(stat.id)) {
         c.textContent = 'MAX';
@@ -368,7 +418,7 @@ function battleScreen() {
       }
       c.textContent = '$' + fmt(cost) + (n > 1 ? ` ×${n}` : '');
       const can = run.cash >= cost;
-      b.className = 'upg ' + stat.cat + (can ? '' : ' no');
+      b.className = 'upg ' + stat.cat + (can ? '' : ' no') + (best.includes(stat.id) ? ' best' : '');
       b.disabled = false;
     }
   };
@@ -377,7 +427,11 @@ function battleScreen() {
     const S = run.S;
     if (run.wave !== shownWave) {
       shownWave = run.wave;
-      if (run.wave % 10 === 0) showBanner(`Wave ${run.wave} · Boss`, true);
+      if (run.wave % run.bossEvery() === 0) {
+        showBanner(`Wave ${run.wave} · Boss`, true);
+        // the very first boss gets a word of advice
+        if (run.tier === 1 && run.wave === 10 && !app.save.stats.bossKills) toast('The boss hits hard. Health and Health Regen keep you standing.');
+      }
       else if (run.wave % 5 === 0) showBanner(`Wave ${run.wave}`, false);
     }
     const boss = run.enemies.find((e) => e.boss && !e.dead);
@@ -390,7 +444,7 @@ function battleScreen() {
     field.classList.toggle('danger', run.hp / S.maxHp < 0.25);
     waveLabel.textContent = 'Wave ' + run.wave;
     waveFill.style.width = ((run.waveTime / WORLD.waveSeconds) * 100).toFixed(1) + '%';
-    timeLabel.textContent = fmtClock(run.simTime) + ' · Tier ' + run.tier;
+    timeLabel.textContent = fmtClock(run.simTime) + ' · Tier ' + run.tier + (run.challenge ? ' · Challenge' : '');
     cashLabel.textContent = '$' + fmt(run.cash);
     hpText.textContent = `${fmt(Math.max(0, run.hp))} / ${fmt(S.maxHp)}`;
     hpFill.style.width = ((Math.max(0, run.hp) / S.maxHp) * 100).toFixed(1) + '%';

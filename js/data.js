@@ -10,6 +10,17 @@ export const WORLD = {
   waveSeconds: 26,
 };
 
+// Fortitude: the walls take at most `cap` of their max health in raw damage per
+// second. Defense Absolute comes off each hit before the cap counts it, Defense %
+// off what the cap lets through. While more is coming than the cap lets in,
+// strain builds and the cap rises by `strain` for every second of it, so a tower
+// that is overrun still falls; it relaxes at `relax` seconds per second once the
+// pressure is off. Under strain, Regen and Lifesteal together make up at most
+// `mend` of what gets through, so walls with little health and a lot of Regen
+// cannot outlast the cap. Lifesteal heals at most `lifesteal` × its own
+// percentage of max health a second.
+export const FORTITUDE = { cap: 0.25, strain: 0.03, relax: 0.5, mend: 0.5, lifesteal: 0.25 };
+
 // ---------------------------------------------------------------- upgrades
 // One definition per tower stat. The effective level of a stat during a run
 // is workshop level + run level; v(level) gives the stat's value.
@@ -47,7 +58,7 @@ export const STATS = [
   { id: 'regen', cat: 'defense', name: 'Health Regen', v: (l) => 0.05 * l * 1.014 ** l, max: 6000, run: [5, 1.065], ws: [20, 1.08], f: (x) => num(x) + '/s' },
   { id: 'defPct', cat: 'defense', name: 'Defense %', v: (l) => 0.004 * l, max: 160, run: [10, 1.08], ws: [40, 1.095], f: pct },
   { id: 'defAbs', cat: 'defense', name: 'Defense Absolute', v: (l) => 0.4 * l * 1.012 ** l, max: 6000, run: [6, 1.07], ws: [30, 1.08], f: 'big' },
-  { id: 'thorns', cat: 'defense', name: 'Thorn Damage', v: (l) => 0.01 * l, max: 60, run: [15, 1.10], ws: [50, 1.12], f: pct },
+  { id: 'thorns', cat: 'defense', name: 'Thorns (melee)', v: (l) => 0.01 * l, max: 60, run: [15, 1.10], ws: [50, 1.12], f: pct },
   { id: 'lifesteal', cat: 'defense', name: 'Lifesteal', v: (l) => 0.001 * l, max: 120, run: [20, 1.075], ws: [70, 1.09], f: pct, unlock: 600, grp: 'lifesteal' },
   { id: 'kbChance', cat: 'defense', name: 'Knockback Chance', v: (l) => 0.01 * l, max: 50, run: [10, 1.10], ws: [40, 1.12], f: pct },
   { id: 'kbForce', cat: 'defense', name: 'Knockback Force', v: (l) => 1 + 0.12 * l, max: 40, run: [12, 1.11], ws: [45, 1.13], f: meters },
@@ -87,13 +98,25 @@ export const ENEMIES = {
   basic: { name: 'Drone', hp: 4, dmg: 1, speed: 5.5, r: 1.65, cash: 2.5, coins: 0.7, color: '#e8eefc', shape: 'square' },
   fast: { name: 'Dart', hp: 2.5, dmg: 0.8, speed: 10, r: 1.35, cash: 3, coins: 0.9, color: '#ffd35a', shape: 'triangle' },
   tank: { name: 'Bastion', hp: 18, dmg: 2.5, speed: 3.2, r: 2.7, cash: 10, coins: 2.4, color: '#ff6b6b', shape: 'square' },
-  ranged: { name: 'Lancer', hp: 4, dmg: 1.2, speed: 4.5, r: 1.65, cash: 5, coins: 1.4, color: '#7cf5a8', shape: 'diamond', standoff: 24, fireEvery: 1.6 },
+  ranged: { name: 'Lancer', hp: 4, dmg: 1.2, speed: 4.5, r: 1.65, cash: 5, coins: 1.4, color: '#7cf5a8', shape: 'diamond', standoff: 24, standoffTier: 1.3, fireEvery: 1.6 },
   scatter: { name: 'Splitter', hp: 8, dmg: 1, speed: 4.8, r: 2.1, cash: 6.25, coins: 1.6, color: '#c792ff', shape: 'hex', splits: 3 },
   shard: { name: 'Shard', hp: 2, dmg: 0.6, speed: 7, r: 1.05, cash: 1, coins: 0.3, color: '#c792ff', shape: 'triangle' },
   protector: { name: 'Warden', hp: 10, dmg: 1, speed: 4, r: 2.25, cash: 7.5, coins: 2, color: '#6fe7ff', shape: 'ring', aura: 8, shield: 0.5 },
   vampire: { name: 'Leech', hp: 8, dmg: 1.5, speed: 6, r: 1.8, cash: 7.5, coins: 2.2, color: '#ff4fa3', shape: 'diamond', drains: 0.03 },
+  // tier 4+: a shield in front soaks the first `guard` hits, however big; many hits beat it
+  guarded: { name: 'Phalanx', hp: 14, dmg: 2, speed: 3.8, r: 2.4, cash: 9, coins: 2.2, color: '#a9c1ff', shape: 'shield', guard: 4 },
+  // tier 5+: walks to `leapAt` (just outside the base range), gathers itself, then leaps to `leapTo`
+  leaper: { name: 'Pouncer', hp: 9, dmg: 2.2, speed: 6, r: 1.8, cash: 8, coins: 2.2, color: '#ffa04d', shape: 'chevron', leapAt: 31, leapTo: 9, leapWind: 0.8 },
+  // tier 6+: heals every enemy within `healR` a share of its max health each second
+  healer: { name: 'Shepherd', hp: 12, dmg: 1, speed: 4.2, r: 2.1, cash: 9, coins: 2.4, color: '#b6ff8a', shape: 'cross', heals: 0.04, healR: 10 },
   boss: { name: 'Colossus', hp: 60, dmg: 6, speed: 2.4, r: 5.1, cash: 100, coins: 24, color: '#ff3d3d', shape: 'boss', boss: true },
 };
+
+// Where a ranged enemy stops: farther out on higher tiers, so Range decides
+// whether the tower can answer it.
+export function standoffAt(def, tier) {
+  return def.standoff ? def.standoff + (def.standoffTier || 0) * (tier - 1) : 0;
+}
 
 export function enemyHpScale(wave, tier) {
   const t = TIERS[tier - 1];
@@ -118,9 +141,10 @@ export function enemyHpAt(def, wave, tier, hpMult = 1) {
   const parts = [
     { label: `Wave ${wave}`, op: '×', v: enemyHpScale(wave, 1) },
     { label: `Tier ${tier}`, op: '×', v: t.hp },
-    { label: 'Perk: Bounty', op: '×', v: hpMult },
+    { label: 'Perk or challenge', op: '×', v: hpMult },
   ];
   if (def.boss) parts.push({ label: 'Boss, +15% every 10 waves', op: '×', v: 1 + Math.floor(wave / 10) * 0.15 });
+  parts.push({ label: 'First boss, gentler', op: '×', v: firstBoss(def, wave, tier) });
   return built(def.hp, parts);
 }
 
@@ -128,7 +152,13 @@ export function enemyDmgAt(def, wave, tier) {
   return built(def.dmg, [
     { label: `Wave ${wave}`, op: '×', v: enemyDmgScale(wave, 1) },
     { label: `Tier ${tier}`, op: '×', v: TIERS[tier - 1].dmg },
+    { label: 'First boss, gentler', op: '×', v: firstBoss(def, wave, tier) },
   ]);
+}
+
+// The very first boss a player meets teaches rather than ends the run.
+export function firstBoss(def, wave, tier) {
+  return def.boss && tier === 1 && wave === 10 ? 0.5 : 1;
 }
 
 // S: the tower's computed stats (cashMult, coinMult, bossCoinMult)
@@ -165,6 +195,9 @@ export function spawnTable(wave, tier) {
   if (wave + early >= 22) t.push(['scatter', 7 + tier]);
   if (wave + early >= 32) t.push(['protector', 4 + tier]);
   if (tier >= 3 && wave >= 20) t.push(['vampire', 3 + tier]);
+  if (tier >= 4 && wave >= 15) t.push(['guarded', 2 + tier]);
+  if (tier >= 5 && wave >= 25) t.push(['leaper', tier]);
+  if (tier >= 6 && wave >= 30) t.push(['healer', tier - 2]);
   return t;
 }
 
@@ -172,16 +205,19 @@ export function spawnTable(wave, tier) {
 // unlockWave: wave to reach on the previous tier to open this one.
 export const TIERS = [
   { hp: 1, dmg: 1, cash: 1, coins: 1, unlockWave: 0 },
-  { hp: 4, dmg: 3, cash: 1.6, coins: 1.8, unlockWave: 40 },
-  { hp: 16, dmg: 9, cash: 2.5, coins: 2.8, unlockWave: 50 },
-  { hp: 60, dmg: 26, cash: 3.6, coins: 4.2, unlockWave: 60 },
-  { hp: 220, dmg: 75, cash: 5, coins: 6, unlockWave: 70 },
-  { hp: 800, dmg: 210, cash: 7, coins: 8.5, unlockWave: 80 },
-  { hp: 3000, dmg: 600, cash: 10, coins: 12, unlockWave: 90 },
-  { hp: 11000, dmg: 1700, cash: 14, coins: 17, unlockWave: 100 },
-  { hp: 40000, dmg: 4800, cash: 19, coins: 24, unlockWave: 110 },
-  { hp: 150000, dmg: 14000, cash: 26, coins: 34, unlockWave: 120 },
+  { hp: 6, dmg: 4, cash: 1.5, coins: 1.6, unlockWave: 60 },
+  { hp: 36, dmg: 16, cash: 2.2, coins: 2.5, unlockWave: 100 },
+  { hp: 200, dmg: 64, cash: 3.2, coins: 3.8, unlockWave: 140 },
+  { hp: 1100, dmg: 250, cash: 4.5, coins: 5.6, unlockWave: 180 },
+  { hp: 6000, dmg: 1000, cash: 6.3, coins: 8.2, unlockWave: 220 },
+  { hp: 32000, dmg: 4000, cash: 9, coins: 12, unlockWave: 260 },
+  { hp: 170000, dmg: 16000, cash: 12.5, coins: 17.5, unlockWave: 300 },
+  { hp: 900000, dmg: 64000, cash: 17.5, coins: 25, unlockWave: 350 },
+  { hp: 4800000, dmg: 256000, cash: 24, coins: 36, unlockWave: 400 },
 ];
+
+// Milestone gems and stones, and the stones a run pays, grow this much per tier.
+export const TIER_REWARD_STEP = 0.25;
 
 // -------------------------------------------------------------------- labs
 // time: minutes for level n = base * g^n; cost: coins = base * g^n
@@ -205,6 +241,7 @@ export const LABS = [
   { id: 'perkFreq', name: 'Perk Frequency', desc: 'A perk every fewer waves', per: 0.5, max: 10, time: [60, 1.35], cost: [800, 1.6], f: (x) => '-' + x + ' waves' },
   { id: 'perkChoices', name: 'Perk Choices', desc: 'One more perk to choose from', per: 1, max: 2, time: [240, 3], cost: [5000, 5], f: (x) => '+' + x },
   { id: 'autoPerk', name: 'Auto Perk', desc: 'Picks perks for you, in your priority order', per: 1, max: 1, time: [180, 1], cost: [3000, 1], f: (x) => (x ? 'on' : 'off') },
+  { id: 'autoBuy', name: 'Auto Upgrade', desc: 'Spends cash during a run for you, split between Attack, Defense and Utility as you choose', per: 1, max: 1, time: [360, 1], cost: [8000, 1], f: (x) => (x ? 'on' : 'off'), requires: 'autoPerk' },
   { id: 'uwCooldown', name: 'Ultimate Cooldown', desc: 'Ultimate weapons recharge faster', per: 0.015, max: 25, time: [45, 1.2], cost: [600, 1.32], f: pct },
   { id: 'idleRate', name: 'Idle Earnings', desc: 'Coins earned while you are away', per: 0.03, max: 15, time: [30, 1.25], cost: [400, 1.4], f: pct },
   { id: 'idleCap', name: 'Idle Time Cap', desc: 'Longer away time counts towards coins', per: 1, max: 12, time: [30, 1.25], cost: [400, 1.4], f: (x) => '+' + x + 'h' },
@@ -274,7 +311,7 @@ export function cardStars(copies) {
 // Each has three upgradeable parameters; cost in stones = base * g^level.
 export const UWS = [
   {
-    id: 'wave', glyph: '◎', name: 'Annihilation Wave', color: '#ff5f7a', unlock: 5,
+    id: 'wave', glyph: '◎', name: 'Annihilation Wave', color: '#ff5f7a',
     desc: 'Rings of force roll out from the tower and crush what they pass.',
     params: [
       { id: 'dmg', name: 'Damage', v: (l) => 8 + 6 * l, max: 30, cost: [3, 1.18], f: (x) => '×' + x + ' damage' },
@@ -283,7 +320,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'arc', glyph: 'ϟ', name: 'Arc Storm', color: '#7fe3ff', unlock: 25,
+    id: 'arc', glyph: 'ϟ', name: 'Arc Storm', color: '#7fe3ff',
     desc: 'Shots can call lightning that leaps between enemies.',
     params: [
       { id: 'chance', name: 'Chance', v: (l) => 0.03 + 0.01 * l, max: 22, cost: [4, 1.2], f: pct },
@@ -292,7 +329,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'missiles', glyph: '➶', name: 'Seeker Missiles', color: '#ffb547', unlock: 50,
+    id: 'missiles', glyph: '➶', name: 'Seeker Missiles', color: '#ffb547',
     desc: 'A volley of homing missiles that explode on impact.',
     params: [
       { id: 'dmg', name: 'Damage', v: (l) => 6 + 4 * l, max: 30, cost: [3, 1.18], f: (x) => '×' + x },
@@ -301,7 +338,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'singularity', glyph: '◉', name: 'Singularity', color: '#a98bff', unlock: 100,
+    id: 'singularity', glyph: '◉', name: 'Singularity', color: '#a98bff',
     desc: 'Tears open a void that pulls enemies in and erases them.',
     params: [
       { id: 'size', name: 'Size', v: (l) => 5 + 0.5 * l, max: 16, cost: [6, 1.3], f: meters },
@@ -310,7 +347,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'midas', glyph: '¢', name: 'Midas Keep', color: '#ffd84d', unlock: 150,
+    id: 'midas', glyph: '¢', name: 'Midas Keep', color: '#ffd84d',
     desc: 'For a while, every kill pays out much more cash and coins.',
     params: [
       { id: 'bonus', name: 'Bonus', v: (l) => 1.5 + 0.25 * l, max: 20, cost: [5, 1.25], f: (x) => '×' + x },
@@ -319,7 +356,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'searchlight', glyph: '✷', name: 'Searchlight', color: '#fff3a8', unlock: 200,
+    id: 'searchlight', glyph: '✷', name: 'Searchlight', color: '#fff3a8',
     desc: 'A sweeping beam; enemies caught in it take extra damage.',
     params: [
       { id: 'bonus', name: 'Damage Bonus', v: (l) => 1.5 + 0.3 * l, max: 30, cost: [4, 1.2], f: (x) => '×' + x.toFixed(1) },
@@ -328,7 +365,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'timefield', glyph: '⌛', name: 'Time Field', color: '#66ffd1', unlock: 300,
+    id: 'timefield', glyph: '⌛', name: 'Time Field', color: '#66ffd1',
     desc: 'Everything inside the field crawls.',
     params: [
       { id: 'slow', name: 'Slow', v: (l) => 0.35 + 0.025 * l, max: 20, cost: [4, 1.22], f: pct },
@@ -337,7 +374,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'minering', glyph: '✹', name: 'Mine Ring', color: '#ff9b5e', unlock: 400,
+    id: 'minering', glyph: '✹', name: 'Mine Ring', color: '#ff9b5e',
     desc: 'Plants a ring of heavy mines close to the walls.',
     params: [
       { id: 'dmg', name: 'Damage', v: (l) => 20 + 10 * l, max: 30, cost: [3, 1.18], f: (x) => '×' + x },
@@ -346,7 +383,7 @@ export const UWS = [
     ],
   },
   {
-    id: 'venom', glyph: '☠', name: 'Venom Marsh', color: '#9dff5e', unlock: 500,
+    id: 'venom', glyph: '☠', name: 'Venom Marsh', color: '#9dff5e',
     desc: 'Kills can leave a pool that eats a share of enemy health every second.',
     params: [
       { id: 'chance', name: 'Chance', v: (l) => 0.05 + 0.01 * l, max: 20, cost: [4, 1.22], f: pct },
@@ -355,6 +392,9 @@ export const UWS = [
     ],
   },
 ];
+
+// Stones to unlock the n-th ultimate weapon, whichever it is: the player picks the order.
+export const UW_UNLOCK_COSTS = [5, 50, 150, 300, 500, 800, 1200, 1700, 2300];
 
 export const UW_BY_ID = Object.fromEntries(UWS.map((u) => [u.id, u]));
 
@@ -459,5 +499,85 @@ export const DAILY_GEMS = 10;
 export const GEM_DROP_EVERY = 600; // seconds of run time between floating gems
 export const BOSS_GEM_CHANCE = 0.06;
 export const BOSS_MODULE_CHANCE = 0.03;
-export const OFFLINE_BASE_RATE = 0.15; // share of best coins/second earned while away
+export const OFFLINE_BASE_RATE = 0.10; // share of recent coins/second earned while away
+export const IDLE_RUNS = 5; // idle coins follow the average of this many recent runs
 export const OFFLINE_BASE_CAP_H = 12;
+
+// ------------------------------------------------------------ workshop refine
+// A stat at its workshop maximum can be refined: each level adds 1% to it.
+export const REFINE = { per: 0.01, max: 50, first: 1.6, g: 1.12 };
+const NOT_REFINABLE = new Set(['msTargets', 'bounceTargets', 'orbs']);
+export function refinable(stat) {
+  return stat.max < 6000 && !NOT_REFINABLE.has(stat.id);
+}
+
+// --------------------------------------------------------------- card sets
+// Owning every card of a rarity at enough stars pays a bonus, equipped or not.
+export const CARD_SETS = [
+  { rarity: 'common', stars: 3, name: 'Common collection', desc: 'Coins +5%', coins: 0.05 },
+  { rarity: 'rare', stars: 3, name: 'Rare collection', desc: 'Damage and max health +5%', damage: 0.05, health: 0.05 },
+  { rarity: 'epic', stars: 2, name: 'Epic collection', desc: 'Coins and damage +10%', coins: 0.1, damage: 0.1 },
+];
+
+// ---------------------------------------------------------------- missions
+// Three a day and two a week, picked from these by the date. n(save) sets the
+// target from the player's own records, so they stay reachable but not free.
+export const DAILY_MISSIONS = [
+  { kind: 'reach', gems: 15 },
+  { kind: 'runs', n: 3, gems: 10 },
+  { kind: 'bosses', n: 4, gems: 10 },
+  { kind: 'kills', gems: 10 },
+  { kind: 'coins', gems: 10 },
+];
+export const WEEKLY_MISSIONS = [
+  { kind: 'reach', plus: 10, gems: 60, stones: 15 },
+  { kind: 'bosses', n: 30, gems: 40, stones: 10 },
+  { kind: 'runs', n: 20, gems: 40, stones: 10 },
+];
+
+// ------------------------------------------------------- weekly challenge
+// Each week two of these shape a special run on a fixed tier. Stones at
+// set waves, once a week.
+export const CHALLENGE_MODS = [
+  { id: 'glass', name: 'Glass Walls', desc: 'Max health ×0.5, damage ×1.6', hp: 0.5, dmg: 1.6 },
+  { id: 'horde', name: 'Horde', desc: 'Twice the enemies, each with 60% health', count: 2, ehp: 0.6 },
+  { id: 'siege', name: 'Lancer Siege', desc: 'Four times as many Lancers', lancers: 4 },
+  { id: 'lean', name: 'Lean Times', desc: 'Cash ×0.5, but 300 cash to start', cash: 0.5, startCash: 300 },
+  { id: 'rush', name: 'Rush', desc: 'Enemies move 35% faster', speed: 1.35 },
+  { id: 'giants', name: 'Giants', desc: 'A boss every 5 waves', bossEvery: 5 },
+  { id: 'fog', name: 'Fog', desc: 'Range ×0.75', range: 0.75 },
+];
+export const CHALLENGE_REWARDS = [
+  { wave: 10, stones: 3 }, { wave: 25, stones: 6 }, { wave: 50, stones: 10 },
+  { wave: 75, stones: 15 }, { wave: 100, stones: 25 }, { wave: 150, stones: 40 },
+];
+
+// ----------------------------------------------------------------- seasons
+// Four-week seasons count the waves you survive. Rewards are looks only:
+// they change nothing about how strong the tower is.
+export const SEASON_EPOCH = Date.UTC(2026, 9, 19); // a Monday
+export const SEASON_DAYS = 28;
+export const SEASON_REWARDS = [{ waves: 1500 }, { waves: 5000 }, { waves: 12000 }];
+
+// Tower colours: the default plus the ones seasons hand out, two a season.
+export const THEMES = [
+  { id: 'ember', name: 'Ember', glow: '255,181,71', line: '#ffb547', hot: '255,214,140', mid: '255,160,40' },
+  { id: 'frost', name: 'Frost', glow: '111,231,255', line: '#6fe7ff', hot: '200,245,255', mid: '60,190,255' },
+  { id: 'verdant', name: 'Verdant', glow: '124,245,168', line: '#7cf5a8', hot: '210,255,220', mid: '60,210,120' },
+  { id: 'royal', name: 'Royal', glow: '199,146,255', line: '#c792ff', hot: '235,215,255', mid: '160,100,255' },
+  { id: 'crimson', name: 'Crimson', glow: '255,95,122', line: '#ff5f7a', hot: '255,200,205', mid: '240,60,90' },
+  { id: 'gold', name: 'Gilded', glow: '255,216,77', line: '#ffd84d', hot: '255,248,200', mid: '240,190,40' },
+  { id: 'abyss', name: 'Abyss', glow: '90,120,255', line: '#7d93ff', hot: '210,220,255', mid: '70,90,240' },
+  { id: 'jade', name: 'Jade', glow: '102,255,209', line: '#66ffd1', hot: '210,255,240', mid: '40,210,170' },
+  { id: 'dusk', name: 'Dusk', glow: '255,155,242', line: '#ff9bf2', hot: '255,225,250', mid: '230,100,210' },
+];
+export const THEME_BY_ID = Object.fromEntries(THEMES.map((t) => [t.id, t]));
+
+// ------------------------------------------------------------- opening up
+// Tabs appear as the player reaches what they are for.
+export const TAB_INTROS = {
+  labs: 'Labs research permanent bonuses in real time, also while the game is closed. Start one now: it finishes while you play.',
+  ultimates: 'Stones unlock Ultimate weapons, which fire on their own. Each one you unlock makes the next dearer, so choose the order.',
+  cards: 'Gems buy cards. Equip them in your slots; copies add stars. A full set of one rarity pays a bonus even when not equipped.',
+  modules: 'Modules fit four slots and grow with shards from bosses. Three identical ones merge into a rarer one.',
+};

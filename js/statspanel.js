@@ -7,9 +7,9 @@ import { fmt, fmtPct, fmtTime } from './format.js';
 import { play } from './audio.js';
 import {
   STAT_BY_ID, ENEMIES, WORLD, PERK_BY_ID, enemyHpAt, enemyDmgAt, enemyCashAt, enemyCoinsAt,
-  spawnInterval, spawnTable,
+  spawnInterval, spawnTable, standoffAt, FORTITUDE,
 } from './data.js';
-import { computeStats } from './stats.js';
+import { computeStats, holdSeconds } from './stats.js';
 import { isUnlocked } from './state.js';
 
 const trim = (x, d) => x.toFixed(d).replace(/\.?0+$/, '');
@@ -94,8 +94,10 @@ function towerTab(save, run, S) {
       ['Damage blocked', S.defAbs || S.defPct ? `${fmt(S.defAbs)} flat, then ${pct2(S.defPct)}` : 'none'],
       [`A Drone hit at wave ${wave}`, `${fmt(drone)} → ${fmt(taken)}`],
       ['Regen', S.regen > 0 ? `${fmt(S.regen)}/s, full in ${fmtTime(S.maxHp / S.regen)}` : 'none'],
+      ['Fortitude', `${fmt(S.maxHp * S.fortitude)}/s at most (${fmtPct(S.fortitude, 0)})`],
+      ['Overrun, the walls hold', holdText(S)],
     ]),
-    h('p', { class: 'muted small' }, 'Expected DPS counts critical hits and multishot on a target in range. Tap any line below to see what it is made of.'));
+    h('p', { class: 'muted small' }, 'Expected DPS counts critical hits and multishot on a target in range. Fortitude: however many enemies reach the walls, they take at most that much raw damage a second; while more keeps coming, the limit rises by ' + fmtPct(FORTITUDE.strain, 0) + ' a second, and Regen and Lifesteal make up at most ' + fmtPct(FORTITUDE.mend, 0) + ' of what gets through. Defense %, Regen and Lifesteal decide how long you hold. Tap any line below to see what it is made of.'));
 
   const effects = run ? liveEffects(run, S) : [];
   const effectsCard = effects.length
@@ -118,6 +120,10 @@ function towerTab(save, run, S) {
     : null;
 
   return h('div', { class: 'list' }, summary, effectsCard, ...sections, perkCard);
+}
+
+function holdText(S) {
+  return `about ${fmtTime(holdSeconds(S))}`;
 }
 
 // Effects that come and go during a run.
@@ -143,6 +149,7 @@ function liveEffects(run, S) {
   const tf = run.uw.timefield;
   if (tf && tf.active > 0) out.push(['Time Field', `enemies in range ${fmtPct(S.uw.timefield.slow, 0)} slower, ${Math.ceil(tf.active)}s left`, 'pos']);
   if (S.uw.searchlight) out.push(['Searchlight', `enemies in the beam take ×${trim(S.uw.searchlight.bonus, 1)}`]);
+  if (run.strain > 0.5) out.push(['Strain', `walls overrun for ${Math.round(run.strain)}s: Fortitude lets in ${mult(1 + FORTITUDE.strain * run.strain)}`, 'neg']);
   if (S.lifesteal > 0) out.push(['Lifesteal', `${pct2(S.lifesteal)} of tower shot damage, at most 2% health a hit`]);
   return out;
 }
@@ -184,7 +191,10 @@ function enemiesTab(save, run, S, state, rerender) {
     const shots = Math.max(1, Math.ceil(hp.total / perShot));
     const ex = (o, label) => ({ base: o.base, label, parts: o.parts });
     const note = type === 'boss' ? 'Comes every 10th wave. Slow, huge, hits hard.'
-      : def.standoff ? `Stops at ${def.standoff}m and fires every ${def.fireEvery}s.`
+      : def.standoff ? `Stops at ${trim(standoffAt(def, tier), 1)}m on tier ${tier} and fires every ${def.fireEvery}s.${standoffAt(def, tier) > S.range ? ` That is beyond your range (${trim(S.range, 1)}m): only orbs, bounces and ultimates reach it.` : ''}`
+        : def.guard ? `A shield in front soaks its first ${def.guard} hits, however strong. Many hits break it: Multishot, Bounce, Arc Storm, Orbs.`
+          : def.leapAt ? `Stops at ${def.leapAt}m, just outside the base range, then leaps to ${def.leapTo}m from the walls. Range past ${def.leapAt}m lets you hit it on the way.`
+            : def.heals ? `Heals every enemy within ${def.healR}m by ${fmtPct(def.heals, 0)} of its health each second. Kill it fast: big hits and Crits.`
         : def.splits ? `Splits into ${def.splits} Shards when it dies.`
           : def.aura ? `Enemies within ${def.aura}m of it take half damage.`
             : def.drains ? `Heals ${fmtPct(def.drains, 0)} of its health each time it hits.`
@@ -211,6 +221,9 @@ function enemyIcon(def) {
     diamond: '<path d="M21 12 12 19 3 12 12 5Z"/>',
     hex: '<path d="M21 12 16.5 19.8h-9L3 12l4.5-7.8h9Z"/>',
     ring: '<circle cx="12" cy="12" r="8"/>',
+    shield: '<path d="M21 12 15 20 4 17V7l11-3Z"/>',
+    chevron: '<path d="M21 12 4 21 9 12 4 3Z"/>',
+    cross: '<path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6Z"/>',
     boss: '<path d="M12 2 14.8 6.3 19.8 5.6 18.5 10.5 22 12 18.5 13.5 19.8 18.4 14.8 17.7 12 22 9.2 17.7 4.2 18.4 5.5 13.5 2 12 5.5 10.5 4.2 5.6 9.2 6.3Z"/>',
   };
   return h('span', { class: 'eicon', html: `<svg viewBox="0 0 24 24" fill="${c}" stroke="rgba(0,0,0,.45)" stroke-width="1">${shapes[def.shape] || shapes.square}</svg>` });

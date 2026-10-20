@@ -9,7 +9,9 @@ export function setNotation(mode) {
 }
 
 function trim(x, digits) {
-  return x.toFixed(digits).replace(/\.?0+$/, '');
+  // only zeros after the decimal point: 50 stays 50
+  const t = x.toFixed(digits);
+  return digits > 0 ? t.replace(/\.?0+$/, '') : t;
 }
 
 export function fmt(n, digits = 2) {

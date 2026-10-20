@@ -2,11 +2,13 @@
 // runs in the browser and in the Node tests.
 
 import {
-  WORLD, STATS, STAT_BY_ID, runCost, ENEMIES, enemyHpAt, enemyDmgAt, enemyCashAt, enemyCoinsAt, spawnInterval, spawnTable,
+  WORLD, FORTITUDE, STATS, STAT_BY_ID, runCost, ENEMIES, standoffAt, enemyHpAt, enemyDmgAt, enemyCashAt, enemyCoinsAt, spawnInterval, spawnTable,
   TIERS, PERKS, PERK_BY_ID, BOSS_GEM_CHANCE, BOSS_MODULE_CHANCE, GEM_DROP_EVERY,
 } from './data.js';
 import { computeStats } from './stats.js';
 import { isUnlocked, rollModule } from './state.js';
+import { challengeMods } from './meta.js';
+import { runAdvice } from './advisor.js';
 
 const TAU = Math.PI * 2;
 const MAX_ENEMIES = 450;
@@ -14,12 +16,15 @@ const MAX_FX = 260;
 const MAX_MINES = 60;
 
 export class Run {
-  constructor(save, { tier = save.tier, rand = Math.random, snapshot = null } = {}) {
+  constructor(save, { tier = save.tier, rand = Math.random, snapshot = null, challenge = null } = {}) {
     this.save = save;
     this.rand = rand;
     this.tier = tier;
     this.lv = {};
     this.perks = {};
+    // a weekly challenge run: { week, mods: [ids] }
+    this.challenge = snapshot ? snapshot.challenge || null : challenge;
+    this.mods = this.challenge ? challengeMods(this.challenge.mods) : null;
     this.S = computeStats(save, this);
     this.wave = 1;
     this.waveTime = 0;
@@ -53,6 +58,10 @@ export class Run {
     this.perkCounter = 0;
     this.pendingPerks = 0;
     this.perkChoicesNow = null;
+    this.fortBucket = 0;
+    this.lsBucket = 0;
+    this.strain = 0;
+    this.strained = false;
     this.shieldAcc = 0;
     this.shieldReady = this.S.shieldEvery > 0;
     this.secondWindUsed = false;
@@ -71,6 +80,8 @@ export class Run {
     this.fireT = 0;
     this.shake = 0;
     this.damageBySource = {};
+    this.spent = { attack: 0, defense: 0, utility: 0 };
+    this.autoAcc = 0;
 
     if (snapshot) this.restore(snapshot);
     else {
@@ -81,6 +92,7 @@ export class Run {
       }
     }
     this.initUw();
+    this.fortBucket = this.fortCap();
   }
 
   // ------------------------------------------------------------ snapshot
@@ -91,7 +103,7 @@ export class Run {
       lv: { ...this.lv }, perks: { ...this.perks }, perkCounter: this.perkCounter, pendingPerks: this.pendingPerks,
       simTime: this.simTime, secondWindUsed: this.secondWindUsed, demonUsed: this.demonUsed,
       gemsFound: this.gemsFound, shardsFound: this.shardsFound, gemAcc: this.gemAcc,
-      damageBySource: { ...this.damageBySource },
+      damageBySource: { ...this.damageBySource }, challenge: this.challenge, spent: { ...this.spent },
     };
   }
 
@@ -105,7 +117,8 @@ export class Run {
     });
     this.lv = { ...(s.lv || {}) };
     this.perks = { ...(s.perks || {}) };
-    this.bossSpawned = this.wave % 10 === 0 ? this.wave : 0;
+    this.spent = { attack: 0, defense: 0, utility: 0, ...(s.spent || {}) };
+    this.bossSpawned = this.wave % this.bossEvery() === 0 ? this.wave : 0;
     this.recompute();
     this.hp = Math.max(1, (s.hpFrac || 1) * this.S.maxHp);
   }
@@ -167,6 +180,7 @@ export class Run {
       if (cost > this.cash) break;
       if (this.rand() < freeChance) free++;
       else this.cash -= cost;
+      this.spent[stat.cat] += cost;
       this.lv[id] = this.runLevel(id) + 1;
       bought++;
     }
@@ -175,6 +189,43 @@ export class Run {
       this.sfx.push('buy');
     }
     return { bought, free };
+  }
+
+  // Spend cash the way the player split it: the category furthest below its
+  // share goes next, and inside it the upgrade with the best value per cash.
+  // Waits (saves up) when that upgrade costs more than the cash on hand. The
+  // ranking is taken once per call; a level bought scales its value by the
+  // price step, which keeps a call cheap on a phone.
+  autoBuyStep() {
+    const split = this.save.settings.autoSplit || {};
+    const cats = ['attack', 'defense', 'utility'].filter((c) => (split[c] || 0) > 0);
+    const want = cats.reduce((a, c) => a + split[c], 0);
+    if (!want) return 0;
+    const list = runAdvice(this).ranked.list.filter((x) => x.value > 0).map((x) => ({ ...x }));
+    let bought = 0;
+    for (let guard = 0; guard < 60; guard++) {
+      const total = this.spent.attack + this.spent.defense + this.spent.utility;
+      let pick = null;
+      let gap = -Infinity;
+      for (const c of cats) {
+        if (!list.some((x) => x.cat === c)) continue;
+        const g = split[c] / want - (total ? this.spent[c] / total : 0);
+        if (g > gap) { gap = g; pick = c; }
+      }
+      if (!pick) break;
+      let top = null;
+      for (const x of list) if (x.cat === pick && (!top || x.value > top.value)) top = x;
+      if (top.cost > this.cash) break;
+      if (!this.buy(top.id, 1).bought) break;
+      bought++;
+      if (!this.canUpgrade(top.id)) list.splice(list.indexOf(top), 1);
+      else {
+        const next = this.upgradeCost(top.id);
+        top.value *= top.cost / next;
+        top.cost = next;
+      }
+    }
+    return bought;
   }
 
   // -------------------------------------------------------------- perks
@@ -258,8 +309,8 @@ export class Run {
     this.simTime += dt;
     this.waveTime += dt;
 
-    // boss at the start of every tenth wave
-    if (this.wave % 10 === 0 && this.bossSpawned !== this.wave) {
+    // boss at the start of every tenth wave (more often in some challenges)
+    if (this.wave % this.bossEvery() === 0 && this.bossSpawned !== this.wave) {
       this.bossSpawned = this.wave;
       this.spawn('boss');
       this.shake = 0.6;
@@ -286,6 +337,15 @@ export class Run {
 
     if (this.pendingPerks > 0 && S.autoPerk) this.autoPickPerk();
 
+    // auto upgrade: a few times a second, not every tick
+    if (S.autoBuy) {
+      this.autoAcc += dt;
+      if (this.autoAcc >= 0.5) {
+        this.autoAcc = 0;
+        this.autoBuyStep();
+      }
+    }
+
     // floating gem every few minutes of play
     this.gemAcc += dt;
     if (!this.gemBubble && this.gemAcc >= GEM_DROP_EVERY) {
@@ -301,6 +361,10 @@ export class Run {
 
     if (this.hp <= 0) this.onDefeat();
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
+  }
+
+  bossEvery() {
+    return this.mods ? this.mods.bossEvery : 10;
   }
 
   collectGem() {
@@ -370,7 +434,8 @@ export class Run {
   spawn(type) {
     if (this.enemies.length >= MAX_ENEMIES) return null;
     if (!type) {
-      const table = spawnTable(this.wave, this.tier);
+      let table = spawnTable(this.wave, this.tier);
+      if (this.mods && this.mods.lancers !== 1) table = table.map(([t, w]) => [t, t === 'ranged' ? w * this.mods.lancers : w]);
       const total = table.reduce((a, [, w]) => a + w, 0);
       let x = this.rand() * total;
       type = table[0][0];
@@ -389,9 +454,10 @@ export class Run {
     const e = {
       id: this.nextId++, type, def, x, y, hp, maxHp: hp,
       dmg: enemyDmgAt(def, this.wave, this.tier).total,
-      speed: def.speed * (0.92 + this.rand() * 0.16),
+      speed: def.speed * (0.92 + this.rand() * 0.16) * (this.mods ? this.mods.speed : 1),
       r: def.r, boss: !!def.boss, atkAcc: 0, fireAcc: this.rand(), slow: 0, hitFlash: 0,
       wave: this.wave, angle: Math.atan2(-y, -x), pending: 0,
+      standoff: standoffAt(def, this.tier), guard: def.guard || 0, guardPending: 0, windup: 0, leapt: false, healAcc: 0,
     };
     this.enemies.push(e);
     return e;
@@ -402,6 +468,7 @@ export class Run {
     const tf = this.uw.timefield && this.uw.timefield.active > 0 ? this.S.uw.timefield : null;
     const sing = this.singularity;
     const protectors = this.enemies.filter((e) => e.def.aura);
+    this.updateHealers(dt);
     for (const e of this.enemies) {
       if (e.dead) continue;
       e.hitFlash = Math.max(0, e.hitFlash - dt);
@@ -425,12 +492,24 @@ export class Run {
         }
       }
       const contact = WORLD.towerRadius + e.r;
-      const stop = e.def.standoff ? Math.max(contact, e.def.standoff) : contact;
-      if (d > stop) {
+      const stop = e.standoff ? Math.max(contact, e.standoff) : contact;
+      if (e.def.leapAt && !e.leapt && d <= e.def.leapAt) {
+        // gathers itself just outside the base range, then leaps in
+        e.windup += dt;
+        if (e.windup >= e.def.leapWind) {
+          e.leapt = true;
+          this.addFx({ type: 'ring', x: e.x, y: e.y, r0: 0.5, r1: 3, color: e.def.color, ttl: 0.3 });
+          const k = e.def.leapTo / (d || 1);
+          e.x *= k;
+          e.y *= k;
+          this.addFx({ type: 'ring', x: e.x, y: e.y, r0: 0.5, r1: 3.5, color: e.def.color, ttl: 0.35 });
+          this.sfx.push('zap');
+        }
+      } else if (d > stop) {
         const step = Math.min(speed * dt, d - stop);
         e.x -= (e.x / d) * step;
         e.y -= (e.y / d) * step;
-      } else if (e.def.standoff) {
+      } else if (e.standoff) {
         e.fireAcc += dt;
         if (e.fireAcc >= e.def.fireEvery) {
           e.fireAcc = 0;
@@ -459,6 +538,28 @@ export class Run {
     this.enemyShots = this.enemyShots.filter((s) => !s.done);
   }
 
+  // Shepherds heal every enemy around them, a few times a second.
+  updateHealers(dt) {
+    for (const h of this.enemies) {
+      if (h.dead || !h.def.heals) continue;
+      h.healAcc += dt;
+      if (h.healAcc < 0.25) continue;
+      const t = h.healAcc;
+      h.healAcc = 0;
+      const R = h.def.healR;
+      let any = false;
+      for (const o of this.enemies) {
+        if (o.dead || o.hp >= o.maxHp) continue;
+        const dx = o.x - h.x;
+        const dy = o.y - h.y;
+        if (dx * dx + dy * dy > R * R) continue;
+        o.hp = Math.min(o.maxHp, o.hp + o.maxHp * h.def.heals * t * (o.boss ? 0.25 : 1));
+        any = true;
+      }
+      if (any) this.addFx({ type: 'ring', x: h.x, y: h.y, r0: 1, r1: R, color: h.def.color, ttl: 0.4 });
+    }
+  }
+
   hitTower(raw, attacker) {
     const S = this.S;
     if (this.demonT > 0) return;
@@ -468,7 +569,13 @@ export class Run {
       this.addFx({ type: 'ring', x: 0, y: 0, r0: 4, r1: 6, color: '#6fe7ff', ttl: 0.35 });
       return;
     }
-    const dmg = Math.max(0, raw - S.defAbs) * (1 - S.defPct);
+    // Defense Absolute takes its slice off the hit, Fortitude lets in what the
+    // second still allows, Defense % takes its share of that
+    const hit = Math.max(0, raw - S.defAbs);
+    const pass = Math.min(hit, this.fortBucket);
+    this.fortBucket -= pass;
+    if (pass < hit) this.strained = true;
+    const dmg = pass * (1 - S.defPct);
     this.hp -= dmg;
     if (dmg > 0) this.towerFlash = 0.12;
     if (attacker && !attacker.dead) {
@@ -495,6 +602,13 @@ export class Run {
   // Deal damage to an enemy; returns the damage dealt.
   damage(e, amount, source) {
     if (e.dead || amount <= 0) return 0;
+    // a Phalanx shield soaks whole hits, whatever their size
+    if (e.guard > 0 && source !== 'venom' && source !== 'singularity') {
+      e.guard--;
+      e.hitFlash = 0.08;
+      this.addFx({ type: 'ring', x: e.x, y: e.y, r0: e.r + 0.3, r1: e.r + (e.guard ? 1 : 3), color: e.guard ? '#a9c1ff' : '#ffffff', ttl: e.guard ? 0.2 : 0.4 });
+      return 0;
+    }
     if (e.shielded) amount *= 0.5;
     if (this.inSearchlight(e)) amount *= this.S.uw.searchlight.bonus;
     const dealt = Math.min(e.hp, amount);
@@ -604,16 +718,27 @@ export class Run {
     return dmg * (1 + this.S.dmgPerMeter * dist) * (e.shielded ? 0.5 : 1);
   }
 
+  // A shot bound for a shield that is still up will do nothing but break a
+  // piece of it; it counts against the shield, not the health.
   claim(s, e) {
     this.release(s);
     s.claim = e;
+    if (e.guard - e.guardPending > 0) {
+      s.guardClaim = true;
+      s.est = 0;
+      e.guardPending++;
+      return;
+    }
     s.est = this.expectedHit(e, s.dmg);
     e.pending += s.est;
   }
 
   release(s) {
     if (!s.claim) return;
-    s.claim.pending = Math.max(0, s.claim.pending - s.est);
+    if (s.guardClaim) {
+      s.claim.guardPending = Math.max(0, s.claim.guardPending - 1);
+      s.guardClaim = false;
+    } else s.claim.pending = Math.max(0, s.claim.pending - s.est);
     s.claim = null;
   }
 
@@ -625,9 +750,25 @@ export class Run {
     return m;
   }
 
+  // Raw damage the walls can take per second right now.
+  fortCap() {
+    return this.S.fortitude * this.S.maxHp * (1 + FORTITUDE.strain * this.strain);
+  }
+
   updateTower(dt) {
     const S = this.S;
-    this.hp = Math.min(S.maxHp, this.hp + S.regen * dt);
+    // fortitude: refill the per-second allowance; strain builds while hits overflow it
+    if (this.strained) this.strain += dt;
+    else this.strain = Math.max(0, this.strain - FORTITUDE.relax * dt);
+    this.strained = false;
+    const cap = this.fortCap();
+    this.fortBucket = Math.min(cap, this.fortBucket + cap * dt);
+    // under strain, repairs make up at most `mend` of what gets through
+    const mend = this.strain > 0 ? FORTITUDE.mend * cap * (1 - S.defPct) : Infinity;
+    const regen = Math.min(S.regen, mend);
+    this.hp = Math.min(S.maxHp, this.hp + regen * dt);
+    const ls = Math.min(S.maxHp * S.lifesteal * FORTITUDE.lifesteal, mend - regen);
+    this.lsBucket = Math.min(ls, this.lsBucket + ls * dt);
     if (this.demonT > 0) this.demonT = Math.max(0, this.demonT - dt);
     if (this.towerFlash > 0) this.towerFlash -= dt;
     if (this.fireT > 0) this.fireT -= dt;
@@ -772,7 +913,11 @@ export class Run {
     const dist = Math.hypot(t.x, t.y);
     const dmg = s.dmg * (1 + S.dmgPerMeter * dist);
     const dealt = this.damage(t, dmg, 'tower');
-    if (S.lifesteal > 0 && dealt > 0) this.hp = Math.min(S.maxHp, this.hp + Math.min(dealt * S.lifesteal, S.maxHp * 0.02));
+    if (S.lifesteal > 0 && dealt > 0 && this.lsBucket > 0) {
+      const heal = Math.min(dealt * S.lifesteal, S.maxHp * 0.02, this.lsBucket);
+      this.lsBucket -= heal;
+      this.hp = Math.min(S.maxHp, this.hp + heal);
+    }
     if (this.save.settings.dmgNumbers && (s.crit || s.big)) {
       this.addFx({ type: 'num', x: t.x, y: t.y - t.r, text: dmg, color: s.big ? '#ff9bf2' : '#ffd35a', ttl: 0.7 });
     }
@@ -1038,6 +1183,7 @@ export class Run {
       kills: this.kills, bossKills: this.bossKills, simSec: this.simTime, damage: this.damageDealt,
       gems: this.gemsFound, shards: this.shardsFound, modules: this.modulesFound.length,
       damageBySource: this.damageBySource,
+      challenge: !!this.challenge, week: this.challenge ? this.challenge.week : null,
     };
   }
 }
