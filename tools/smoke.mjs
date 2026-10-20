@@ -64,14 +64,44 @@ await page.evaluate(async () => {
 await page.waitForTimeout(800);
 await shot('06-summary');
 await page.click('.modal button:has-text("Home")');
-for (const [i, name] of ['Workshop', 'Labs', 'Cards', 'Modules', 'Ultimates'].entries()) {
+// tabs open in turn: after one run, Workshop and Labs
+await page.click('#tabs >> text=Labs');
+await page.waitForTimeout(300);
+await shot('07-labs-intro');
+// a mid-game save opens the rest, the weekly challenge and refining
+await page.evaluate(async () => {
+  const { app, commit } = await import('./js/app.js');
+  const s = app.save;
+  s.tiersUnlocked = 6; s.tier = 6; s.best = { 1: 160, 2: 120, 3: 100, 4: 80, 5: 60, 6: 30 };
+  s.stones = 60; s.gems = 300; s.coins = 5e6; s.ws.critChance = 80; s.refine = { critChance: 3 };
+  s.milestones = { t1: [10, 25, 50, 75, 100] };
+  for (const id of ['damage', 'health', 'regen', 'defPct', 'atkSpeed', 'range']) s.ws[id] = Math.max(s.ws[id] || 0, 150);
+  s.uws.wave = { on: true, lv: {} };
+  s.history = { '2026-10-12': { 5: 30 }, '2026-10-14': { 5: 48 }, '2026-10-16': { 6: 21 }, '2026-10-19': { 6: 30 } };
+  commit(); app.go('home');
+});
+await page.waitForTimeout(300);
+await shot('08-home-midgame');
+for (const [i, name] of ['Workshop', 'Cards', 'Modules', 'Ultimates'].entries()) {
   await page.click(`#tabs >> text=${name}`);
   await page.waitForTimeout(300);
-  await shot(`0${7 + i}-${name.toLowerCase()}`);
+  await shot(`${String(9 + i).padStart(2, "0")}-${name.toLowerCase()}`);
+  await page.click('button:has-text("Got it")', { timeout: 500 }).catch(() => {});
 }
 await page.click('[aria-label="Settings"]');
 await page.waitForTimeout(300);
-await shot('12-settings');
+await shot('13-settings');
+// tier 6: Phalanx, Pouncer and Shepherd
+await page.click('#tabs >> text=Home');
+await page.click('button:has-text("BATTLE")');
+await page.evaluate(async () => {
+  const { app } = await import('./js/app.js');
+  // walls that never fall, so the new enemies pile up where they can be seen
+  app.run.S.maxHp = app.run.hp = 1e30;
+  for (let i = 0; i < 60 * 600 && !app.run.over && app.run.wave < 32; i++) app.run.step(1 / 60);
+});
+await page.waitForTimeout(600);
+await shot('14-tier6-enemies');
 
 // a save written by version 1, with a run in progress
 const old = (await readFile(join(root, 'tests/fixtures/save-v1.json'), 'utf8')).trim();
@@ -80,20 +110,20 @@ page2.on('pageerror', (e) => errors.push('v1 save: ' + e.message));
 await page2.addInitScript((txt) => { if (!sessionStorage.seeded) { localStorage.setItem('krepost-save-v1', txt); sessionStorage.seeded = 1; } }, old);
 await page2.goto(url);
 await page2.waitForTimeout(500);
-await page2.screenshot({ path: `${out}/13-v1-save-home.png` });
+await page2.screenshot({ path: `${out}/15-v1-save-home.png` });
 await page2.click('.modal button >> nth=-1').catch(() => {});
 await page2.click('button:has-text("CONTINUE")');
 await page2.waitForTimeout(3000);
-await page2.screenshot({ path: `${out}/14-v1-save-battle.png` });
+await page2.screenshot({ path: `${out}/16-v1-save-battle.png` });
 await page2.evaluate(async () => {
   const { app } = await import('./js/app.js');
   for (let i = 0; i < 60 * 40 && !app.run.over; i++) app.run.step(1 / 60);
 });
 await page2.waitForTimeout(1200);
-await page2.screenshot({ path: `${out}/15-v1-save-boss.png` });
+await page2.screenshot({ path: `${out}/17-v1-save-boss.png` });
 await page2.click('[aria-label="Stats"]');
 await page2.waitForTimeout(300);
-await page2.screenshot({ path: `${out}/16-v1-save-stats.png`, fullPage: false });
+await page2.screenshot({ path: `${out}/18-v1-save-stats.png`, fullPage: false });
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no console errors');
 await browser.close();
 server.close();

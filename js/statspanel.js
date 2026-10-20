@@ -94,7 +94,7 @@ function towerTab(save, run, S) {
       ['Damage blocked', S.defAbs || S.defPct ? `${fmt(S.defAbs)} flat, then ${pct2(S.defPct)}` : 'none'],
       [`A Drone hit at wave ${wave}`, `${fmt(drone)} → ${fmt(taken)}`],
       ['Regen', S.regen > 0 ? `${fmt(S.regen)}/s, full in ${fmtTime(S.maxHp / S.regen)}` : 'none'],
-      ['Fortitude', `at most ${fmt(S.maxHp * S.fortitude)} raw damage a second (${fmtPct(S.fortitude, 0)} of health)`],
+      ['Fortitude', `${fmt(S.maxHp * S.fortitude)}/s at most (${fmtPct(S.fortitude, 0)})`],
       ['Overrun, the walls hold', holdText(S)],
     ]),
     h('p', { class: 'muted small' }, 'Expected DPS counts critical hits and multishot on a target in range. Fortitude: however many enemies reach the walls, they take at most that much raw damage a second; while more keeps coming, the limit rises by ' + fmtPct(FORTITUDE.strain, 0) + ' a second, and Regen and Lifesteal make up at most ' + fmtPct(FORTITUDE.mend, 0) + ' of what gets through. Defense %, Regen and Lifesteal decide how long you hold. Tap any line below to see what it is made of.'));
