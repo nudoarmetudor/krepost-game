@@ -2,7 +2,7 @@
 // upgrades and perks into one flat object the simulation reads every tick.
 
 import {
-  STAT_BY_ID, CARD_BY_ID, cardStars, UWS, MODULE_SLOT_BY_ID, LAB_BY_ID, PERK_BY_ID, RARITY, MODULE_RARITIES, REFINE,
+  FORTITUDE, TIERS, STAT_BY_ID, CARD_BY_ID, cardStars, UWS, MODULE_SLOT_BY_ID, LAB_BY_ID, PERK_BY_ID, RARITY, MODULE_RARITIES, REFINE,
 } from './data.js';
 import { wsLevel, isUnlocked, labValue, moduleByUid, moduleMainValue, moduleEffectValue, uwState } from './state.js';
 import { refineLevel, cardSetBonus } from './meta.js';
@@ -157,7 +157,10 @@ export function computeStats(save, run) {
   S.defPct = T('defPct').add(cardL('defense'), c('defense')).add(perkL('defense'), 0.04 * p('defense'))
     .add(perkL('ironskin'), p('ironskin') ? 0.12 : 0).add(modFxL('armor'), moduleFx(save, 'armor', 'bulwark', 0))
     .cap(0.95).v;
-  S.defAbs = T('defAbs').mul(labL('defAbs'), 1 + lab('defAbs')).v;
+  // flat blocking grows with the tier played, as enemy damage does
+  const tier = (run && run.tier) || save.tier || 1;
+  S.defAbs = T('defAbs').mul(labL('defAbs'), 1 + lab('defAbs')).mul(`Tier ${tier}`, TIERS[tier - 1].dmg).v;
+  S.fortitude = F('fortitude', 'Base', FORTITUDE.cap).v;
   S.thorns = T('thorns').mul(modFxL('armor'), moduleFx(save, 'armor', 'reflector', 1)).v;
   S.lifesteal = T('lifesteal').add(perkL('lifesteal'), 0.015 * p('lifesteal')).v;
   S.kbChance = T('kbChance').v;

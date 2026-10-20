@@ -10,6 +10,17 @@ export const WORLD = {
   waveSeconds: 26,
 };
 
+// Fortitude: the walls take at most `cap` of their max health in raw damage per
+// second. Defense Absolute comes off each hit before the cap counts it, Defense %
+// off what the cap lets through. While more is coming than the cap lets in,
+// strain builds and the cap rises by `strain` for every second of it, so a tower
+// that is overrun still falls; it relaxes at `relax` seconds per second once the
+// pressure is off. Under strain, Regen and Lifesteal together make up at most
+// `mend` of what gets through, so walls with little health and a lot of Regen
+// cannot outlast the cap. Lifesteal heals at most `lifesteal` × its own
+// percentage of max health a second.
+export const FORTITUDE = { cap: 0.25, strain: 0.03, relax: 0.5, mend: 0.5, lifesteal: 0.25 };
+
 // ---------------------------------------------------------------- upgrades
 // One definition per tower stat. The effective level of a stat during a run
 // is workshop level + run level; v(level) gives the stat's value.
@@ -47,7 +58,7 @@ export const STATS = [
   { id: 'regen', cat: 'defense', name: 'Health Regen', v: (l) => 0.05 * l * 1.014 ** l, max: 6000, run: [5, 1.065], ws: [20, 1.08], f: (x) => num(x) + '/s' },
   { id: 'defPct', cat: 'defense', name: 'Defense %', v: (l) => 0.004 * l, max: 160, run: [10, 1.08], ws: [40, 1.095], f: pct },
   { id: 'defAbs', cat: 'defense', name: 'Defense Absolute', v: (l) => 0.4 * l * 1.012 ** l, max: 6000, run: [6, 1.07], ws: [30, 1.08], f: 'big' },
-  { id: 'thorns', cat: 'defense', name: 'Thorn Damage', v: (l) => 0.01 * l, max: 60, run: [15, 1.10], ws: [50, 1.12], f: pct },
+  { id: 'thorns', cat: 'defense', name: 'Thorns (melee)', v: (l) => 0.01 * l, max: 60, run: [15, 1.10], ws: [50, 1.12], f: pct },
   { id: 'lifesteal', cat: 'defense', name: 'Lifesteal', v: (l) => 0.001 * l, max: 120, run: [20, 1.075], ws: [70, 1.09], f: pct, unlock: 600, grp: 'lifesteal' },
   { id: 'kbChance', cat: 'defense', name: 'Knockback Chance', v: (l) => 0.01 * l, max: 50, run: [10, 1.10], ws: [40, 1.12], f: pct },
   { id: 'kbForce', cat: 'defense', name: 'Knockback Force', v: (l) => 1 + 0.12 * l, max: 40, run: [12, 1.11], ws: [45, 1.13], f: meters },
@@ -87,13 +98,25 @@ export const ENEMIES = {
   basic: { name: 'Drone', hp: 4, dmg: 1, speed: 5.5, r: 1.65, cash: 2.5, coins: 0.7, color: '#e8eefc', shape: 'square' },
   fast: { name: 'Dart', hp: 2.5, dmg: 0.8, speed: 10, r: 1.35, cash: 3, coins: 0.9, color: '#ffd35a', shape: 'triangle' },
   tank: { name: 'Bastion', hp: 18, dmg: 2.5, speed: 3.2, r: 2.7, cash: 10, coins: 2.4, color: '#ff6b6b', shape: 'square' },
-  ranged: { name: 'Lancer', hp: 4, dmg: 1.2, speed: 4.5, r: 1.65, cash: 5, coins: 1.4, color: '#7cf5a8', shape: 'diamond', standoff: 24, fireEvery: 1.6 },
+  ranged: { name: 'Lancer', hp: 4, dmg: 1.2, speed: 4.5, r: 1.65, cash: 5, coins: 1.4, color: '#7cf5a8', shape: 'diamond', standoff: 24, standoffTier: 1.3, fireEvery: 1.6 },
   scatter: { name: 'Splitter', hp: 8, dmg: 1, speed: 4.8, r: 2.1, cash: 6.25, coins: 1.6, color: '#c792ff', shape: 'hex', splits: 3 },
   shard: { name: 'Shard', hp: 2, dmg: 0.6, speed: 7, r: 1.05, cash: 1, coins: 0.3, color: '#c792ff', shape: 'triangle' },
   protector: { name: 'Warden', hp: 10, dmg: 1, speed: 4, r: 2.25, cash: 7.5, coins: 2, color: '#6fe7ff', shape: 'ring', aura: 8, shield: 0.5 },
   vampire: { name: 'Leech', hp: 8, dmg: 1.5, speed: 6, r: 1.8, cash: 7.5, coins: 2.2, color: '#ff4fa3', shape: 'diamond', drains: 0.03 },
+  // tier 4+: a shield in front soaks the first `guard` hits, however big; many hits beat it
+  guarded: { name: 'Phalanx', hp: 14, dmg: 2, speed: 3.8, r: 2.4, cash: 9, coins: 2.2, color: '#a9c1ff', shape: 'shield', guard: 4 },
+  // tier 5+: walks to `leapAt` (just outside the base range), gathers itself, then leaps to `leapTo`
+  leaper: { name: 'Pouncer', hp: 9, dmg: 2.2, speed: 6, r: 1.8, cash: 8, coins: 2.2, color: '#ffa04d', shape: 'chevron', leapAt: 31, leapTo: 9, leapWind: 0.8 },
+  // tier 6+: heals every enemy within `healR` a share of its max health each second
+  healer: { name: 'Shepherd', hp: 12, dmg: 1, speed: 4.2, r: 2.1, cash: 9, coins: 2.4, color: '#b6ff8a', shape: 'cross', heals: 0.04, healR: 10 },
   boss: { name: 'Colossus', hp: 60, dmg: 6, speed: 2.4, r: 5.1, cash: 100, coins: 24, color: '#ff3d3d', shape: 'boss', boss: true },
 };
+
+// Where a ranged enemy stops: farther out on higher tiers, so Range decides
+// whether the tower can answer it.
+export function standoffAt(def, tier) {
+  return def.standoff ? def.standoff + (def.standoffTier || 0) * (tier - 1) : 0;
+}
 
 export function enemyHpScale(wave, tier) {
   const t = TIERS[tier - 1];
@@ -172,6 +195,9 @@ export function spawnTable(wave, tier) {
   if (wave + early >= 22) t.push(['scatter', 7 + tier]);
   if (wave + early >= 32) t.push(['protector', 4 + tier]);
   if (tier >= 3 && wave >= 20) t.push(['vampire', 3 + tier]);
+  if (tier >= 4 && wave >= 15) t.push(['guarded', 2 + tier]);
+  if (tier >= 5 && wave >= 25) t.push(['leaper', tier]);
+  if (tier >= 6 && wave >= 30) t.push(['healer', tier - 2]);
   return t;
 }
 
