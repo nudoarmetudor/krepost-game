@@ -1,7 +1,7 @@
 // Offline support: serve from cache, refresh the cache in the background so
 // the next start picks up a new version.
 
-const CACHE = 'krepost-v4';
+const CACHE = 'krepost-v5';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/main.js', 'js/app.js', 'js/audio.js', 'js/data.js', 'js/dom.js', 'js/format.js',
